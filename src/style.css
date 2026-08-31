@@ -1,191 +1,167 @@
+@import 'tailwindcss';
+
 :root {
   color-scheme: dark;
 }
 
-html,
-body {
-  margin: 0;
-  padding: 0;
-  overflow: hidden;
-  width: 100%;
-  height: 100%;
-  background: #0a1a2a;
-  font-family: system-ui, 'Segoe UI', Roboto, sans-serif;
+/* html is the sole scroll container (not also body -- two independently
+   overflow:auto elements nested inside each other is fragile: a mouse
+   wheel over some child can end up scrolling neither). Desktop keeps the
+   original fixed, non-scrolling single-viewport feel (the side-by-side
+   layout always fits); stacked mobile can't guarantee that -- the board
+   plus a sidebar full of panels below it is routinely taller than one
+   screen -- so html scrolls there instead of clipping or squeezing the
+   board down to fit. */
+html {
+  @apply m-0 p-0 w-full h-full bg-[#0a1a2a] overflow-y-auto overflow-x-hidden md:overflow-hidden;
 }
 
-/* A real two-column layout (fixed-width sidebar + the board taking up
+/* A real two-part layout (fixed-width sidebar + the board taking up
    whatever's left) rather than the HUD floating on top of a full-bleed
    canvas -- that older approach let a wide panel spill over the board, and
    always left a dead strip on the right mirroring the sidebar's width on
    the left, since the canvas centered its square-ish view in the *entire*
-   viewport regardless of the sidebar sitting on top of it. */
+   viewport regardless of the sidebar sitting on top of it.
+   Responsive: side-by-side on desktop (sidebar on the left, board on the
+   right -- row-reverse because #app comes first in the DOM so the board
+   sits on top on mobile, see below); stacked on narrow screens, board on
+   top and the sidebar below it, which needs no reversal since #app is
+   already first in source order.
+   No explicit height on mobile -- body just grows to fit its content
+   (html above is what scrolls); md:h-full locks it back to exactly the
+   viewport height on desktop, matching the original fixed layout. */
 body {
-  display: flex;
+  @apply m-0 p-0 w-full bg-[#0a1a2a] font-sans flex flex-col md:h-full md:flex-row-reverse md:overflow-hidden;
 }
 
 #app {
-  flex: 1;
-  min-width: 0; /* allow the flex item to shrink below its content's natural size */
-  height: 100%;
-  display: flex;
-  flex-direction: column;
+  /* min-h-[70vh] on mobile guarantees the board a real chunk of the screen
+     regardless of how tall the sidebar's own (now full-width, stacked)
+     content ends up -- without it, flex-1 with the default min-height:auto
+     would let the sidebar's natural height win the tug-of-war and squeeze
+     the board down instead of the page just scrolling further to reach it. */
+  @apply flex-1 min-w-0 min-h-[70vh] md:min-h-0 flex flex-col;
 }
 
 /* A dedicated header strip above the board itself (not floating over it) --
-   gives the countdown timer and the target "spotlight" reveal real breathing
-   room instead of crowding the board's top edge. The two share this same
-   centered slot; they're never shown at once (see renderTarget's doc
-   comment in main.ts). */
+   gives the target "spotlight" reveal real breathing room instead of
+   crowding the board's top edge. Empty (and collapses to nothing, see
+   #hud-target-spotlight-slot:empty) once bidding starts and the target
+   moves down into the sidebar -- the countdown that used to share this
+   slot now lives in the matching strip below the board instead. */
 #hud-top-strip {
-  flex: 0 0 56px;
-  display: flex;
-  align-items: center;
+  @apply flex-none h-14 flex items-center;
+}
+
+/* A twin of #hud-top-strip below the board instead of above it -- the
+   countdown timer during bidding, or the active bidder's move count during
+   an attempt, read more naturally right under the board where the action
+   is than tucked in the sidebar. */
+#hud-bottom-strip {
+  @apply flex-none h-14 flex items-center;
 }
 
 /* Centers within the board's own on-screen width (--board-width, set by
    Game.ts on #app every resize) rather than this whole strip's width --
    the board no longer fills its container (see BoardRenderer.applyAspect),
    so centering across the full strip would drift right of the board. The
-   20px margin matches #board-area's own left margin so the two line up. */
-#hud-top-strip-inner {
-  width: var(--board-width, 100%);
-  margin-left: 20px;
-  display: flex;
-  justify-content: center;
+   left margin matches #board-area's own left margin so the two line up
+   (smaller on mobile -- see #board-area below). */
+#hud-top-strip-inner,
+#hud-bottom-strip-inner {
+  @apply w-[var(--board-width,100%)] ml-2.5 md:ml-5 flex justify-center gap-3;
 }
 
 #board-area {
-  flex: 1;
-  min-height: 0;
   /* Margin rather than padding -- clientWidth/clientHeight (what Game.ts
      reads to size the renderer/camera) include an element's own padding but
      not its margin, so padding here would size the renderer for a bigger
      box than the canvas actually gets styled to (100% of the padded
      content box), stretching/blurring it. Margin keeps the two in sync.
-     Smaller on top -- the header strip above it already provides its own
-     breathing room, so a full 20px there just doubled up the gap. */
-  margin: 8px 20px 20px;
+     Smaller top/bottom -- the header/footer strips already provide their
+     own breathing room, so a full 20px there just doubled up the gap.
+     Smaller all around on mobile, where every pixel of a much narrower
+     screen counts more than it does on desktop. */
+  @apply flex-1 min-h-0 mt-1 mx-2.5 mb-1 md:mt-2 md:mx-5 md:mb-2;
 }
 
 #board-area canvas {
-  display: block;
-  width: 100%;
-  height: 100%;
+  @apply block w-full h-full;
 }
 
 .hud-panel {
-  padding: 10px 14px;
-  color: #e8f4ff;
-  background: rgba(10, 20, 30, 0.55);
-  border: 1px solid rgba(255, 255, 255, 0.15);
-  border-radius: 8px;
-  font-size: 14px;
-  backdrop-filter: blur(4px);
+  @apply px-3.5 py-2.5 text-[#e8f4ff] bg-[rgba(10,20,30,0.55)] border border-[rgba(255,255,255,0.15)] rounded-lg text-sm backdrop-blur-sm;
 }
 
-/* A fixed-width sidebar (a real flex column, not a floating overlay -- see
-   the `body { display: flex }` rule above) so the target sits between the
+/* A fixed-width sidebar on desktop (a real flex column, not a floating
+   overlay -- see the `body` rule above) so the target sits between the
    scores and the bid controls regardless of how many players there are, and
    every panel's width is capped by the sidebar itself rather than each
-   panel sizing to its own (sometimes long, e.g. a move-list) content. */
+   panel sizing to its own (sometimes long, e.g. a move-list) content. Full
+   width and natural height on narrow screens instead, where it stacks
+   below the board rather than sitting beside it. */
 #hud-left {
-  width: 320px;
-  flex: 0 0 320px;
-  box-sizing: border-box;
-  padding: 16px;
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-  gap: 24px;
-  overflow-y: auto;
+  @apply w-full md:w-80 md:shrink-0 box-border p-2.5 md:p-4 flex flex-col justify-center gap-6 overflow-y-auto;
 }
 
 #hud-left-top {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
+  @apply flex flex-col gap-3;
 }
 
 #hud-left-bottom {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
+  @apply flex flex-col gap-3;
 }
 
 #hud-players {
-  min-width: 140px;
+  @apply min-w-[140px];
 }
 
 .player-row {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 12px;
-  padding: 4px 0;
+  @apply flex justify-between items-center gap-3 py-1;
 }
 
 .player-row.active-bidder {
-  color: #ffd21f;
+  @apply text-[#ffd21f];
 }
 
 .player-name {
-  color: rgba(232, 244, 255, 0.85);
+  @apply text-[rgba(232,244,255,0.85)];
 }
 
 .player-row-right {
-  display: flex;
-  align-items: center;
-  gap: 8px;
+  @apply flex items-center gap-2;
 }
 
 .player-score {
-  font-weight: 700;
-  font-variant-numeric: tabular-nums;
-  min-width: 1.5em;
-  text-align: right;
+  @apply font-bold tabular-nums min-w-[1.5em] text-right;
 }
 
 .player-bid-value {
-  font-size: 12px;
-  color: rgba(232, 244, 255, 0.6);
-  font-variant-numeric: tabular-nums;
+  @apply text-xs text-[rgba(232,244,255,0.6)] tabular-nums;
 }
 
 .player-bid-btn {
-  font-size: 12px;
-  padding: 4px 10px;
+  @apply text-xs px-2.5 py-1;
 }
 
 #hud-target {
-  min-width: 140px;
+  @apply min-w-[140px];
 }
 
 .hud-target-label {
-  margin: 0 0 4px;
-  font-size: 12px;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  color: rgba(232, 244, 255, 0.6);
+  @apply mb-1 text-xs uppercase tracking-[0.08em] text-[rgba(232,244,255,0.6)];
 }
 
 .hud-target-swatch-row {
-  display: flex;
-  align-items: center;
-  justify-content: flex-start;
-  gap: 8px;
+  @apply flex items-center justify-start gap-2;
 }
 
 .swatch {
-  width: 16px;
-  height: 16px;
-  border-radius: 50%;
-  border: 1px solid rgba(255, 255, 255, 0.4);
-  display: inline-block;
+  @apply w-4 h-4 rounded-full border border-[rgba(255,255,255,0.4)] inline-block;
 }
 
 .hud-target-name {
-  font-weight: 700;
-  text-transform: capitalize;
+  @apply font-bold capitalize;
 }
 
 /* The #hud-target panel is the same element in both places -- JS reparents
@@ -195,195 +171,126 @@ body {
    just dials up its presence while it's the sole focus in the spotlight
    slot. */
 #hud-target-spotlight-slot:empty {
-  display: none;
+  @apply hidden;
 }
 
 .hud-target-spotlight {
-  min-width: 220px;
-  text-align: center;
+  @apply min-w-[220px] text-center;
 }
 
 .hud-target-spotlight .hud-target-swatch-row {
-  justify-content: center;
+  @apply justify-center;
 }
 
 .hud-target-spotlight .hud-target-name {
-  font-size: 20px;
+  @apply text-xl;
 }
 
 .hud-move-count {
-  margin: 8px 0 0;
-  font-variant-numeric: tabular-nums;
+  @apply mt-2 tabular-nums;
 }
 
 .ricochet-hint {
-  margin: 8px 0 0;
-  color: #ff8a65;
-  font-weight: 600;
+  @apply mt-2 text-[#ff8a65] font-semibold;
 }
 
 #hud-solution-detail {
-  margin: 8px 0 0;
-  line-height: 1.4;
-  color: rgba(232, 244, 255, 0.85);
-  word-break: break-word;
+  @apply mt-2 leading-[1.4] text-[rgba(232,244,255,0.85)] break-words;
 }
 
 #reveal-solution-btn {
-  margin-top: 12px;
+  @apply mt-3;
 }
 
 .hud-continue-btn {
-  width: 100%;
-  margin-top: 12px;
+  @apply w-full mt-3;
 }
 
 #hud-bid-input {
-  min-width: 140px;
+  @apply min-w-[140px];
 }
 
 #hud-bid-input .hud-instructions {
-  margin: 0 0 8px;
-  font-size: 12px;
+  @apply mb-2 text-xs;
 }
 
 #bid-amount {
-  width: 100%;
-  box-sizing: border-box;
-  padding: 8px 10px;
-  border-radius: 8px;
-  border: 1px solid rgba(255, 255, 255, 0.3);
-  background: rgba(255, 255, 255, 0.06);
-  color: #e8f4ff;
-  font-size: 14px;
-  font-variant-numeric: tabular-nums;
+  @apply w-full box-border px-2.5 py-2 rounded-lg border border-[rgba(255,255,255,0.3)] bg-[rgba(255,255,255,0.06)] text-[#e8f4ff] text-sm tabular-nums;
 }
 
-/* Countdown timer sits centered in the header strip above the board itself
-   (not the left HUD sidebar, and not the full viewport either -- so it
-   centers over the actual board area regardless of the sidebar's width), so
-   it reads as a shared, table-wide clock rather than any one player's
-   control. Shares that strip's centered slot with #hud-target-spotlight-slot:
-   the two are never visible at once, since the timer only appears once the
-   first bid has started the countdown, which is the same moment the target
-   leaves that slot. */
 #hud-timer {
-  display: flex;
-  align-items: center;
-  gap: 12px;
+  @apply flex items-center gap-3;
 }
 
 /* The ID selector above sets `display: flex`, which otherwise beats the
    browser's default `[hidden] { display: none }` (higher specificity) and
    leaves the panel visible even while its `hidden` attribute is set. */
 #hud-timer[hidden] {
-  display: none;
+  @apply hidden;
 }
 
 .hud-timer-text {
-  font-size: 20px;
-  font-weight: 700;
-  font-variant-numeric: tabular-nums;
+  @apply text-xl font-bold tabular-nums;
 }
 
 .hud-instructions {
-  margin: 0 0 8px;
-  color: rgba(232, 244, 255, 0.85);
+  @apply mb-2 text-[rgba(232,244,255,0.85)];
 }
 
 .hud-actions {
-  display: flex;
-  gap: 10px;
-  justify-content: flex-start;
+  @apply flex gap-2.5 justify-start;
 }
 
 .small-btn {
-  font-size: 14px;
-  font-weight: 700;
-  padding: 8px 18px;
-  border-radius: 8px;
-  border: none;
-  background: #2b6fff;
-  color: #fff;
-  cursor: pointer;
+  @apply text-sm font-bold px-4.5 py-2 rounded-lg border-none bg-[#2b6fff] text-white cursor-pointer;
 }
 
 .small-btn:hover:not(:disabled) {
-  background: #1a54d6;
+  @apply bg-[#1a54d6];
 }
 
 .small-btn:disabled {
-  opacity: 0.4;
-  cursor: not-allowed;
+  @apply opacity-40 cursor-not-allowed;
 }
 
 .secondary-btn {
-  border: 1px solid rgba(255, 255, 255, 0.3);
-  background: transparent;
-  color: #e8f4ff;
+  @apply border border-[rgba(255,255,255,0.3)] bg-transparent text-[#e8f4ff];
 }
 
 .secondary-btn:hover {
-  background: rgba(255, 255, 255, 0.1);
+  @apply bg-[rgba(255,255,255,0.1)];
 }
 
 .end-overlay {
-  position: fixed;
-  inset: 0;
-  display: none;
-  align-items: center;
-  justify-content: center;
-  background: rgba(4, 10, 20, 0.6);
-  backdrop-filter: blur(3px);
-  z-index: 10;
+  @apply fixed inset-0 hidden items-center justify-center bg-[rgba(4,10,20,0.6)] backdrop-blur-[3px] z-10;
 }
 
 .end-overlay.visible {
-  display: flex;
+  @apply flex;
 }
 
 .end-overlay-card {
-  min-width: 320px;
-  max-width: 480px;
-  max-height: 90vh;
-  padding: 36px 44px;
-  border-radius: 14px;
-  text-align: center;
-  color: #e8f4ff;
-  background: rgba(10, 20, 30, 0.92);
-  border: 1px solid rgba(255, 255, 255, 0.18);
-  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
-  overflow-y: auto;
+  @apply min-w-80 max-w-[480px] max-h-[90vh] px-11 py-9 rounded-2xl text-center text-[#e8f4ff] bg-[rgba(10,20,30,0.92)] border border-[rgba(255,255,255,0.18)] shadow-[0_20px_60px_rgba(0,0,0,0.5)] overflow-y-auto;
 }
 
 .end-overlay-card h1 {
-  margin: 0 0 16px;
-  font-size: 30px;
-  letter-spacing: 0.5px;
+  @apply mb-4 text-3xl tracking-[0.5px];
 }
 
 .start-blurb {
-  margin: 0 0 24px;
-  line-height: 1.5;
-  color: rgba(232, 244, 255, 0.85);
+  @apply mb-6 leading-normal text-[rgba(232,244,255,0.85)];
 }
 
 .player-setup {
-  margin-bottom: 24px;
+  @apply mb-6;
 }
 
 .player-count-label {
-  margin-right: 8px;
-  color: rgba(232, 244, 255, 0.75);
+  @apply mr-2 text-[rgba(232,244,255,0.75)];
 }
 
 #player-count-select {
-  padding: 6px 10px;
-  border-radius: 8px;
-  border: 1px solid rgba(255, 255, 255, 0.3);
-  background: rgba(255, 255, 255, 0.06);
-  color: #e8f4ff;
-  font-size: 14px;
+  @apply px-2.5 py-1.5 rounded-lg border border-[rgba(255,255,255,0.3)] bg-[rgba(255,255,255,0.06)] text-[#e8f4ff] text-sm;
 }
 
 /* The <select>'s own translucent background works fine sitting on the dark
@@ -392,110 +299,61 @@ body {
    solid background here, the light option text becomes near-invisible
    light-on-white until an option is actually picked. */
 #player-count-select option {
-  background: #0a1a2a;
-  color: #e8f4ff;
+  @apply bg-[#0a1a2a] text-[#e8f4ff];
 }
 
 .search-depth-setup {
-  margin-bottom: 24px;
+  @apply mb-6;
 }
 
 #search-depth-input {
-  width: 64px;
-  padding: 6px 10px;
-  border-radius: 8px;
-  border: 1px solid rgba(255, 255, 255, 0.3);
-  background: rgba(255, 255, 255, 0.06);
-  color: #e8f4ff;
-  font-size: 14px;
-  font-variant-numeric: tabular-nums;
+  @apply w-16 px-2.5 py-1.5 rounded-lg border border-[rgba(255,255,255,0.3)] bg-[rgba(255,255,255,0.06)] text-[#e8f4ff] text-sm tabular-nums;
 }
 
 .player-name-inputs {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  justify-content: center;
-  margin-top: 12px;
+  @apply flex flex-wrap gap-2 justify-center mt-3;
 }
 
 .player-name-input {
-  width: 120px;
-  padding: 8px 10px;
-  border-radius: 8px;
-  border: 1px solid rgba(255, 255, 255, 0.3);
-  background: rgba(255, 255, 255, 0.06);
-  color: #e8f4ff;
-  font-size: 14px;
-  text-align: center;
+  @apply w-[120px] px-2.5 py-2 rounded-lg border border-[rgba(255,255,255,0.3)] bg-[rgba(255,255,255,0.06)] text-[#e8f4ff] text-sm text-center;
 }
 
 .board-select {
-  display: flex;
-  gap: 16px;
+  @apply flex gap-4;
 }
 
 .board-btn {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 8px;
-  padding: 20px 16px;
-  border-radius: 10px;
-  border: 1px solid rgba(255, 255, 255, 0.18);
-  background: rgba(255, 255, 255, 0.04);
-  color: #e8f4ff;
-  cursor: pointer;
-  text-align: center;
-  transition:
-    background 0.15s ease-out,
-    border-color 0.15s ease-out,
-    transform 0.1s ease-out;
+  @apply flex-1 flex flex-col items-center gap-2 px-4 py-5 rounded-[10px] border border-[rgba(255,255,255,0.18)] bg-[rgba(255,255,255,0.04)] text-[#e8f4ff] cursor-pointer text-center transition-[background,border-color,transform] duration-150 ease-out;
 }
 
 .board-btn:hover {
-  background: rgba(43, 111, 255, 0.18);
-  border-color: #2b6fff;
-  transform: translateY(-2px);
+  @apply bg-[rgba(43,111,255,0.18)] border-[#2b6fff] -translate-y-0.5;
 }
 
 .board-btn-title {
-  font-size: 18px;
-  font-weight: 700;
+  @apply text-lg font-bold;
 }
 
 .board-btn-desc {
-  font-size: 13px;
-  line-height: 1.4;
-  color: rgba(232, 244, 255, 0.7);
+  @apply text-[13px] leading-[1.4] text-[rgba(232,244,255,0.7)];
 }
 
 .end-overlay-actions {
-  display: flex;
-  gap: 12px;
-  justify-content: center;
+  @apply flex gap-3 justify-center;
 }
 
 .end-overlay-actions button {
-  font-size: 16px;
-  font-weight: 700;
-  padding: 10px 28px;
-  border-radius: 8px;
-  border: none;
-  background: #2b6fff;
-  color: #fff;
-  cursor: pointer;
+  @apply text-base font-bold px-7 py-2.5 rounded-lg border-none bg-[#2b6fff] text-white cursor-pointer;
 }
 
 .end-overlay-actions button:hover {
-  background: #1a54d6;
+  @apply bg-[#1a54d6];
 }
 
 .end-overlay-actions button.secondary-btn {
-  background: transparent;
+  @apply bg-transparent;
 }
 
 .end-overlay-actions button.secondary-btn:hover {
-  background: rgba(255, 255, 255, 0.1);
+  @apply bg-[rgba(255,255,255,0.1)];
 }

@@ -18,6 +18,11 @@ const endCountdownBtn = required(
   document.querySelector<HTMLButtonElement>('#end-countdown-btn'),
   '#end-countdown-btn',
 );
+const hudAttemptStatus = required(
+  document.querySelector<HTMLDivElement>('#hud-attempt-status'),
+  '#hud-attempt-status',
+);
+const hudAttemptBid = required(document.querySelector<HTMLSpanElement>('#hud-attempt-bid'), '#hud-attempt-bid');
 
 const hudLeftTop = required(document.querySelector<HTMLDivElement>('#hud-left-top'), '#hud-left-top');
 const hudPlayers = required(document.querySelector<HTMLDivElement>('#hud-players'), '#hud-players');
@@ -207,6 +212,7 @@ function renderAttempting(info: UpdateInfo): void {
   attemptBanner.textContent = `${info.activePlayerName} is attempting`;
   attemptMovesRemaining.textContent = `Moves remaining: ${info.remainingMoves}`;
   ricochetHint.hidden = !info.blockedByRicochetRule;
+  hudAttemptBid.textContent = `Bid ${info.activeBidMoves} · ${info.remainingMoves} left`;
 }
 
 function describeMove(move: { color: string; from: Cell; to: Cell }): string {
@@ -227,6 +233,7 @@ function handleUpdate(info: UpdateInfo): void {
 
   hudBidInput.hidden = info.phase !== 'bidding';
   hudAttempting.hidden = info.phase !== 'attempting';
+  hudAttemptStatus.hidden = info.phase !== 'attempting';
   hudGiveUp.hidden = info.phase === 'resolved';
   roundResultPanel.hidden = info.phase !== 'resolved';
   if (info.phase === 'attempting') renderAttempting(info);

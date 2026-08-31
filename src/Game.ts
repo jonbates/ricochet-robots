@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { Board, cellKey, type Direction, ROBOT_COLORS, type RobotColor, sameCell } from './board/Board';
+import { Board, type Cell, cellKey, type Direction, ROBOT_COLORS, type RobotColor, sameCell } from './board/Board';
 import { buildBoardVariant, type BoardVariantId, randomInitialRobots, type Target } from './board/BoardLayout';
 import { type Bid, GameState, type Player, type RoundPhase } from './game/GameState';
 import { solve, type SolveResult } from './ai/Solver';
@@ -19,6 +19,7 @@ export interface UpdateInfo {
   bids: readonly Bid[]; // this round's bids so far, keyed by playerIndex
   bidCountdownMs: number | null; // null while no deadline is set yet
   activePlayerName: string | null; // whoever is currently attempting
+  activeBidMoves: number | null; // the active bidder's declared move count -- remainingMoves counts down from this
   remainingMoves: number | null;
   roundWinnerName: string | null; // set once resolved, if anyone won
   /** True when the target robot is sitting on the target only because of a disallowed straight, unbent first move -- the real rule requires at least one ricochet, so this doesn't count as solved. */
@@ -157,7 +158,7 @@ export class Game {
   revealSolution(): SolveResult | null {
     try {
       const result = solve(this.board, this.state.roundStartRobots, this.state.target, this.searchDepth);
-      this.boardRenderer.showSolutionPath(this.solutionPaths(result));
+      this.boardRenderer.showSolutionPath(this.pathsForMoves(result.moves));
       return result;
     } catch {
       this.boardRenderer.clearSolutionPath();
@@ -165,11 +166,13 @@ export class Game {
     }
   }
 
-  /** Replays a solved move list to recover each move's actual on-board path (a deflector can bend it, so `from`/`to` alone don't describe the route) -- for drawing the dotted solution line. */
-  private solutionPaths(result: SolveResult): { color: RobotColor; path: { col: number; row: number }[] }[] {
+  /** Replays a move list (the solver's proposed solution, or the round's actual moveHistory so far) from the round's starting position to recover each move's actual on-board path -- a deflector can bend it, so `to` alone doesn't describe the route -- for drawing a dashed line per move. */
+  private pathsForMoves(
+    moves: readonly { color: RobotColor; to: Cell; direction: Direction }[],
+  ): { color: RobotColor; path: { col: number; row: number }[] }[] {
     const robots = { ...this.state.roundStartRobots };
     const paths: { color: RobotColor; path: { col: number; row: number }[] }[] = [];
-    for (const move of result.moves) {
+    for (const move of moves) {
       const occupied = new Set<string>();
       for (const c of ROBOT_COLORS) {
         if (c !== move.color) occupied.add(cellKey(robots[c].col, robots[c].row));
@@ -259,10 +262,11 @@ export class Game {
     }
   }
 
-  /** Repositions robot meshes and keeps the selection ring glued to whichever robot is currently selected (a move can relocate the selected robot itself). */
+  /** Repositions robot meshes, keeps the selection ring glued to whichever robot is currently selected (a move can relocate the selected robot itself), and redraws the numbered move trail for the round's current attempt -- an empty moveHistory (a fresh bidder's turn, or giving up) just clears it. */
   private syncRobots(): void {
     this.boardRenderer.setRobotPositions(this.state.robots);
     this.boardRenderer.setSelected(this.state.selected);
+    this.boardRenderer.showMoveTrail(this.pathsForMoves(this.state.moveHistory));
   }
 
   private emitUpdate(): void {
@@ -283,6 +287,7 @@ export class Game {
       bids: this.state.bids,
       bidCountdownMs,
       activePlayerName,
+      activeBidMoves: activeBid?.moves ?? null,
       remainingMoves: this.state.remainingMoves,
       roundWinnerName,
       blockedByRicochetRule: this.state.blockedByRicochetRule,

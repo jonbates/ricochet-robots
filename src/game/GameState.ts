@@ -176,32 +176,68 @@ export class GameState {
       : sameCell(this.robots[this.target.color], this.target.cell);
   }
 
+  /** Whichever robot is actually satisfying the target right now (the matching color, or -- for a warp target -- whichever robot happens to be sitting on it), or null if none is. */
+  private winningRobotColor(): RobotColor | null {
+    if (this.target.color !== 'warp') return sameCell(this.robots[this.target.color], this.target.cell) ? this.target.color : null;
+    return ROBOT_COLORS.find((c) => sameCell(this.robots[c], this.target.cell)) ?? null;
+  }
+
   /**
-   * True if any robot required by the active target (any robot at all for a
-   * warp target, the matching-color one otherwise) is on the target cell --
-   * except a single straight, unbent first move that happens to land there
-   * doesn't count (see blockedByRicochetRule). Per the real rule, a robot
-   * that was already lined up for a direct shot must take another
-   * (ricocheting) route instead; every longer sequence already implies at
-   * least one stop-and-turn along the way, so this only needs to check the
-   * one-move case.
+   * True if the robot required by the active target (the matching color, or
+   * -- for a warp target -- whichever robot is on the cell) is on the target
+   * cell -- except a shot that never actually ricocheted doesn't count (see
+   * blockedByRicochetRule). Moving a *different* robot out of the way and
+   * then sliding the target robot straight into the now-open cell is still
+   * disallowed even though it's technically more than one move total: what
+   * matters is whether the winning robot's own path bent, not the total
+   * move count.
    */
   isSolved(): boolean {
     return this.isOnTargetCell() && !this.blockedByRicochetRule;
   }
 
-  /** True exactly when the robot is sitting on the target only because of a single disallowed straight shot -- lets the UI flag *why* nothing happened, rather than just not winning silently. */
+  /** True exactly when the robot sitting on the target got there without ever genuinely redirecting -- lets the UI flag *why* nothing happened, rather than just not winning silently. */
   get blockedByRicochetRule(): boolean {
-    return this.isOnTargetCell() && this.moveHistory.length === 1 && this.wasTrivialStraightShot(this.moveHistory[0]);
+    if (!this.isOnTargetCell()) return false;
+    const winner = this.winningRobotColor();
+    return winner !== null && !this.hasGenuineRicochet(winner);
   }
 
-  private wasTrivialStraightShot(move: Move): boolean {
-    const occupied = new Set<string>();
-    for (const c of ROBOT_COLORS) {
-      if (c !== move.color) occupied.add(cellKey(this.roundStartRobots[c].col, this.roundStartRobots[c].row));
+  /**
+   * Replays moveHistory from roundStartRobots, and checks whether `color`'s
+   * *own* moves ever redirected -- either a single move bent by a deflector
+   * (a forced corner is a sufficient redirection on its own), or two of its
+   * own moves in a row with different directions (a real stop-and-turn,
+   * possibly with other robots' moves interspersed as blockers cleared in
+   * between). Two of its own moves in the *same* direction can only happen
+   * because some other robot moved out of the way in between -- pressing the
+   * same direction again with nothing changed is a no-op that never reaches
+   * moveHistory at all -- so that case is deliberately never treated as a
+   * redirect: it's exactly the "shove the blocker, then slide straight in"
+   * exploit this rule exists to reject. A robot that made none of its own
+   * moves (already sitting on the target since before the round's first
+   * move) is trivially allowed -- there was no shot to ricochet.
+   */
+  private hasGenuineRicochet(color: RobotColor): boolean {
+    const robots = cloneRobots(this.roundStartRobots);
+    let ownMoveCount = 0;
+    let lastOwnDirection: Direction | null = null;
+    let ricocheted = false;
+    for (const move of this.moveHistory) {
+      if (move.color === color) {
+        ownMoveCount++;
+        const occupied = new Set<string>();
+        for (const c of ROBOT_COLORS) {
+          if (c !== color) occupied.add(cellKey(robots[c].col, robots[c].row));
+        }
+        const path = this.board.slidePath(robots[color], move.direction, occupied, color);
+        if (!isStraightPath(path)) ricocheted = true;
+        else if (lastOwnDirection !== null && lastOwnDirection !== move.direction) ricocheted = true;
+        lastOwnDirection = move.direction;
+      }
+      robots[move.color] = move.to;
     }
-    const path = this.board.slidePath(move.from, move.direction, occupied, move.color);
-    return isStraightPath(path);
+    return ownMoveCount === 0 || ricocheted;
   }
 
   /** Call once `isSolved()` is true during `attempting`: awards the active bidder's player a point and resolves the round. */

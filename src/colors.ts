@@ -12,6 +12,9 @@ export const ROBOT_HEX: Record<RobotColor, number> = {
 /** The warp target's color isn't a robot color -- a distinct purple keeps it from blending into the light tile background. */
 export const WARP_HEX = 0x9b59b6;
 
+/** A second color woven into the warp target's swirl (see BoardRenderer's buildIconMesh) -- yellow's warmth against the purple's coolness makes the two spiral arms read as distinct strands rather than one flat shape. */
+export const WARP_SECONDARY_HEX = 0xf1c40f;
+
 export function targetColorHex(color: TargetColor): number {
   return color === 'warp' ? WARP_HEX : ROBOT_HEX[color];
 }

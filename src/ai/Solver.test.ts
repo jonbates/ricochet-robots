@@ -84,6 +84,32 @@ describe('solve', () => {
     expect(result.moves.length > 1 || result.moves[0]?.color !== 'red').toBe(true);
   });
 
+  it('refuses moving a blocker robot out of the way and then sliding the target robot straight in -- that is not a genuine ricochet even though it is more than one total move', () => {
+    // Same shape of minimal board as GameState.test.ts's ricochet-rule fixture:
+    // red target at (5,5) with walls S and E (valid entries: south down column
+    // 5, or west along row 5), plus an extra E-wall at (5,0) giving a second
+    // stopping point in row 0 for a genuinely bent approach. Blue starts
+    // parked in column 5 at row 3, directly blocking the otherwise-direct
+    // south shot -- the cheapest *total* move count is "shove blue aside,
+    // then slide red straight down," which must NOT be accepted.
+    const target = { color: 'red' as const, cell: { col: 5, row: 5 } };
+    const walls = [
+      { col: 5, row: 5, dir: 'S' as const },
+      { col: 5, row: 5, dir: 'E' as const },
+      { col: 5, row: 0, dir: 'E' as const },
+    ];
+    const board = new Board(walls);
+    const robots: RobotPositions = { ...INITIAL_ROBOTS, red: { col: 0, row: 0 }, blue: { col: 5, row: 3 } };
+
+    const result = solve(board, robots, target, 8);
+    expect(replayReachesTarget(board, robots, result.moves, target)).toBe(true);
+    const redMoves = result.moves.filter((m) => m.color === 'red');
+    // Red's own moves must show a genuine redirection, not just land on the
+    // target as a lone straight slide propped open by blue's earlier move.
+    expect(redMoves.length).toBeGreaterThan(1);
+    expect(new Set(redMoves.map((m) => m.direction)).size).toBeGreaterThan(1);
+  });
+
   it('a deflector bounce within a single move counts as a ricochet -- a bent 1-move solve is still valid', () => {
     // A minimal isolated board (not the dense real one -- that turned out to
     // stay slow/deep even with a hand-picked deflector, since it's hard to

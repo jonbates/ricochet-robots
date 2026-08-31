@@ -7,6 +7,31 @@
     <title>Ricochet Robots</title>
   </head>
   <body>
+    <!-- #app before #hud-left in source order: on a stacked mobile layout
+         (body: flex-col) this puts the board on top and the sidebar below
+         it with no extra markup; on desktop (body: md:flex-row-reverse) the
+         reversal restores the sidebar-left/board-right look without needing
+         to reorder anything again. -->
+    <div id="app">
+      <div id="hud-top-strip">
+        <div id="hud-top-strip-inner">
+          <div id="hud-target-spotlight-slot"></div>
+        </div>
+      </div>
+      <div id="board-area"></div>
+      <div id="hud-bottom-strip">
+        <div id="hud-bottom-strip-inner">
+          <div id="hud-timer" class="hud-panel" hidden>
+            <span id="hud-timer-text" class="hud-timer-text"></span>
+            <button id="end-countdown-btn" type="button" class="secondary-btn small-btn">End Countdown</button>
+          </div>
+          <div id="hud-attempt-status" class="hud-panel" hidden>
+            <span id="hud-attempt-bid" class="hud-timer-text"></span>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <div id="hud-left">
       <div id="hud-left-top">
         <div id="hud-target" class="hud-panel">
@@ -53,19 +78,6 @@
           </div>
         </div>
       </div>
-    </div>
-
-    <div id="app">
-      <div id="hud-top-strip">
-        <div id="hud-top-strip-inner">
-          <div id="hud-target-spotlight-slot"></div>
-          <div id="hud-timer" class="hud-panel" hidden>
-            <span id="hud-timer-text" class="hud-timer-text"></span>
-            <button id="end-countdown-btn" type="button" class="secondary-btn small-btn">End Countdown</button>
-          </div>
-        </div>
-      </div>
-      <div id="board-area"></div>
     </div>
 
     <div id="start-overlay" class="end-overlay visible">

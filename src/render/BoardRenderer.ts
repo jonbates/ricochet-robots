@@ -3,7 +3,7 @@ import { BOARD_SIZE, type Board, type Cell, ROBOT_COLORS, type RobotColor } from
 import { VAULT_CELLS } from '../board/BoardLayout';
 import type { RobotPositions } from '../game/GameState';
 import type { Target, TargetShape } from '../board/BoardLayout';
-import { darkenHex, lightenHex, ROBOT_HEX, targetColorHex } from '../colors';
+import { darkenHex, lightenHex, ROBOT_HEX, targetColorHex, WARP_SECONDARY_HEX } from '../colors';
 
 const TILE_LIGHT = 0xeef2f6;
 const TILE_DARK = 0xdbe3ea;
@@ -49,6 +49,8 @@ const SOLUTION_ARROW_LENGTH = 0.26;
 const SOLUTION_ARROW_WIDTH = 0.22;
 const SOLUTION_JITTER_STEP = 0.07; // sideways offset per move, so overlapping moves (a later one retracing an earlier one's cells) run side by side instead of exactly on top of each other
 const SOLUTION_JITTER_CYCLE = 5; // offsets cycle through a small +/- range rather than drifting further apart with every extra move in a long solution
+const TRAIL_LABEL_RADIUS = 0.32;
+const TRAIL_LABEL_Y = 0.095; // just above the dash/arrow layer, so the number badge always draws on top
 
 /** A flat, unlit shape geometry for a target icon -- square/diamond/triangle come "for free" out of a low-segment CircleGeometry with a chosen starting angle; the star and the warp target's swirl need real outlines. Deliberately no smooth-circle icon shape -- that outline is reserved for robots (see buildRobots), so a target is never visually confused with one. */
 function buildIconGeometry(shape: TargetShape): THREE.BufferGeometry {
@@ -93,13 +95,16 @@ function buildStarGeometry(outerRadius: number, innerRadius: number, points: num
  * inner edge traced back inward) since flat filled shapes are what render
  * reliably here -- see the dashed solution-path arrows below for the same
  * "fake width via a filled ribbon" approach applied to a straight line.
+ * `phaseOffset` starts the spiral partway around instead of at angle 0 --
+ * used to lay a second arm opposite the first (see buildIconMesh) without
+ * the two coinciding.
  */
-function buildSwirlGeometry(maxRadius: number, turns: number, strokeWidth: number, segments: number): THREE.ShapeGeometry {
+function buildSwirlGeometry(maxRadius: number, turns: number, strokeWidth: number, segments: number, phaseOffset = 0): THREE.ShapeGeometry {
   const outer: { x: number; y: number }[] = [];
   const inner: { x: number; y: number }[] = [];
   for (let i = 0; i <= segments; i++) {
     const t = i / segments;
-    const angle = t * turns * Math.PI * 2;
+    const angle = phaseOffset + t * turns * Math.PI * 2;
     const r = t * maxRadius;
     const cx = Math.cos(angle) * r;
     const cy = Math.sin(angle) * r;
@@ -121,9 +126,41 @@ function disposeObject3D(obj: THREE.Object3D): void {
   obj.traverse((child) => {
     if (child instanceof THREE.Mesh) {
       child.geometry.dispose();
-      (child.material as THREE.Material).dispose();
+      const material = child.material as THREE.Material & { map?: THREE.Texture | null };
+      material.map?.dispose(); // numbered move-trail labels carry a canvas texture that needs its own disposal
+      material.dispose();
     }
   });
+}
+
+/** A small canvas-drawn "(n)" badge -- solid circle in the move's own color, white ring, white number -- as a texture, since there's no 3D font loaded for real text geometry. Cheap enough to regenerate on every trail redraw (at most a couple dozen small canvases for a long attempt). */
+function buildNumberLabelTexture(n: number, hexColor: number): THREE.CanvasTexture {
+  const size = 128;
+  const canvas = document.createElement('canvas');
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext('2d')!;
+  ctx.beginPath();
+  ctx.arc(size / 2, size / 2, size / 2 - 4, 0, Math.PI * 2);
+  ctx.fillStyle = `#${hexColor.toString(16).padStart(6, '0')}`;
+  ctx.fill();
+  ctx.lineWidth = 6;
+  ctx.strokeStyle = '#ffffff';
+  ctx.stroke();
+  ctx.fillStyle = '#ffffff';
+  ctx.font = 'bold 64px system-ui, sans-serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(String(n), size / 2, size / 2 + 4);
+  return new THREE.CanvasTexture(canvas);
+}
+
+function buildNumberLabel(n: number, hexColor: number): THREE.Mesh {
+  const geometry = new THREE.CircleGeometry(TRAIL_LABEL_RADIUS, 24);
+  const material = new THREE.MeshBasicMaterial({ map: buildNumberLabelTexture(n, hexColor), transparent: true });
+  const mesh = new THREE.Mesh(geometry, material);
+  mesh.rotation.x = -Math.PI / 2;
+  return mesh;
 }
 
 /** cell -> world-space (x,z) so col/row grow toward +x/+z, centered on the origin. */
@@ -210,6 +247,7 @@ export class BoardRenderer {
   private readonly vaultIconGroup: THREE.Group;
   private vaultIconMesh: THREE.Group | null = null;
   private solutionPathGroup: THREE.Group | null = null;
+  private moveTrailGroup: THREE.Group | null = null;
 
   constructor(board: Board, targets: readonly Target[]) {
     this.scene.background = new THREE.Color(0x0a1a2a);
@@ -409,7 +447,26 @@ export class BoardRenderer {
     }
   }
 
-  private buildIconMesh(target: Target): THREE.Mesh {
+  private buildIconMesh(target: Target): THREE.Object3D {
+    if (target.shape === 'swirl') {
+      // A second, thinner arm in a contrasting warm color (opposite the
+      // primary purple arm, phase-shifted by half a turn) so the vortex
+      // reads as two interleaved strands rather than one flat purple shape.
+      const group = new THREE.Group();
+      const primary = new THREE.Mesh(
+        buildSwirlGeometry(0.32, 1.6, 0.16, 40),
+        new THREE.MeshBasicMaterial({ color: targetColorHex(target.color), side: THREE.DoubleSide }),
+      );
+      const secondary = new THREE.Mesh(
+        buildSwirlGeometry(0.32, 1.6, 0.14, 40, Math.PI),
+        new THREE.MeshBasicMaterial({ color: WARP_SECONDARY_HEX, side: THREE.DoubleSide }),
+      );
+      primary.rotation.x = -Math.PI / 2;
+      secondary.rotation.x = -Math.PI / 2;
+      secondary.position.y = 0.001; // just above the primary arm, avoiding z-fighting where they'd otherwise coincide at the center
+      group.add(primary, secondary);
+      return group;
+    }
     const geometry = buildIconGeometry(target.shape);
     const material = new THREE.MeshBasicMaterial({ color: targetColorHex(target.color), side: THREE.DoubleSide });
     const mesh = new THREE.Mesh(geometry, material);
@@ -476,18 +533,21 @@ export class BoardRenderer {
   }
 
   /**
-   * Draws each move of a revealed solution as a dashed arrow in that move's
-   * robot color, tracing its actual on-board path cell-by-cell (a deflector
-   * can bend it, so a single move can have more than one straight run) --
-   * dashes along the way, one arrowhead at the very end pointing in the
-   * direction the robot was traveling when it stopped. Flat rectangles/
-   * triangles rather than a THREE.Line: WebGL ignores line-width entirely,
-   * so a real line would always render at 1px regardless of styling --
-   * small filled meshes stay reliably visible (and orientable) at any zoom.
+   * Draws each move as a dashed arrow in that move's robot color, tracing
+   * its actual on-board path cell-by-cell (a deflector can bend it, so a
+   * single move can have more than one straight run) -- dashes along the
+   * way, one arrowhead at the very end pointing in the direction the robot
+   * was traveling when it stopped, and (when `numbered`) a small "(n)"
+   * badge at the move's starting cell, 1-indexed in move order. Flat
+   * rectangles/triangles rather than a THREE.Line: WebGL ignores
+   * line-width entirely, so a real line would always render at 1px
+   * regardless of styling -- small filled meshes stay reliably visible
+   * (and orientable) at any zoom. Shared by both the AI's revealed
+   * solution and the live trail of moves a player has actually made this
+   * attempt (see showSolutionPath / showMoveTrail below) -- numbering is
+   * the only real difference between the two.
    */
-  showSolutionPath(moves: readonly { color: RobotColor; path: readonly Cell[] }[]): void {
-    this.clearSolutionPath();
-    const group = new THREE.Group();
+  private drawDashedMoves(group: THREE.Group, moves: readonly { color: RobotColor; path: readonly Cell[] }[], numbered: boolean): void {
     const dashGeometry = buildFlatRectGeometry(SOLUTION_DASH_LENGTH, SOLUTION_DASH_WIDTH);
     const arrowGeometry = buildFlatArrowGeometry(SOLUTION_ARROW_LENGTH, SOLUTION_ARROW_WIDTH);
 
@@ -516,6 +576,15 @@ export class BoardRenderer {
         }
       }
 
+      const firstRun = runs[0];
+      if (numbered && firstRun) {
+        const perpX = -firstRun.dr * jitter;
+        const perpZ = firstRun.dc * jitter;
+        const label = buildNumberLabel(moveIndex + 1, ROBOT_HEX[move.color]);
+        label.position.set(firstRun.a.x + perpX, TRAIL_LABEL_Y, firstRun.a.z + perpZ);
+        group.add(label);
+      }
+
       const lastRun = runs[runs.length - 1];
       if (lastRun) {
         const perpX = -lastRun.dr * jitter;
@@ -526,6 +595,13 @@ export class BoardRenderer {
         group.add(arrow);
       }
     });
+  }
+
+  /** The AI's revealed optimal solution -- unnumbered, since it's a single proposed sequence rather than moves already taken. */
+  showSolutionPath(moves: readonly { color: RobotColor; path: readonly Cell[] }[]): void {
+    this.clearSolutionPath();
+    const group = new THREE.Group();
+    this.drawDashedMoves(group, moves, false);
     this.scene.add(group);
     this.solutionPathGroup = group;
   }
@@ -533,13 +609,25 @@ export class BoardRenderer {
   clearSolutionPath(): void {
     if (!this.solutionPathGroup) return;
     this.scene.remove(this.solutionPathGroup);
-    for (const child of this.solutionPathGroup.children) {
-      if (child instanceof THREE.Mesh) {
-        child.geometry.dispose();
-        (child.material as THREE.Material).dispose();
-      }
-    }
+    disposeObject3D(this.solutionPathGroup);
     this.solutionPathGroup = null;
+  }
+
+  /** The live trail of moves an attempting player has actually made so far this turn -- numbered in move order (1, 2, 3, ...) so a multi-move attempt stays easy to read back. Redraw with the full current move list on every move/undo; an empty list just clears it. */
+  showMoveTrail(moves: readonly { color: RobotColor; path: readonly Cell[] }[]): void {
+    this.clearMoveTrail();
+    if (moves.length === 0) return;
+    const group = new THREE.Group();
+    this.drawDashedMoves(group, moves, true);
+    this.scene.add(group);
+    this.moveTrailGroup = group;
+  }
+
+  clearMoveTrail(): void {
+    if (!this.moveTrailGroup) return;
+    this.scene.remove(this.moveTrailGroup);
+    disposeObject3D(this.moveTrailGroup);
+    this.moveTrailGroup = null;
   }
 
   robotColorAt(intersectedObject: THREE.Object3D): RobotColor | null {

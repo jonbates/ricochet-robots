@@ -263,6 +263,20 @@ describe('GameState ricochet rule (isSolved / blockedByRicochetRule)', () => {
     expect(state.blockedByRicochetRule).toBe(false);
   });
 
+  it('rejects moving a blocker robot out of the way and then sliding the target robot straight in -- that is not a genuine ricochet even though it is two total moves', () => {
+    const state = freshState(RED_TARGET, { ...ROBOTS, blue: { col: 5, row: 3 } }); // blue sits in red's column, blocking the otherwise-direct shot
+    state.placeBid(0, 5, 0);
+    state.tick(60_000);
+    state.select('blue');
+    state.move('W'); // clears column 5: (5,3) -> (0,3)
+    state.select('red');
+    state.move('S'); // red's own move is still a lone, unbent straight shot: (5,0) -> (5,5)
+    expect(state.robots.red).toEqual(TARGET_CELL);
+    expect(state.moveHistory.length).toBe(2);
+    expect(state.isSolved()).toBe(false);
+    expect(state.blockedByRicochetRule).toBe(true);
+  });
+
   it('a warp target is satisfied by any robot, and the same straight-shot rule still applies to whichever one moved', () => {
     // Both sub-cases move red out of ROBOTS' default (5,0) first -- otherwise
     // it would sit on blue's path (and, in the straight-shot case, on blue's
