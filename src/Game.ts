@@ -212,6 +212,12 @@ export class Game {
     const height = this.container.clientHeight;
     this.renderer.setSize(width, height);
     this.boardRenderer.resize(width, height);
+    // The board itself no longer fills its container's full width (see
+    // BoardRenderer.applyAspect) -- publish its actual on-screen width as a
+    // CSS variable on the shared parent so sibling HUD elements (the
+    // timer/target strip above the board) can align with the board rather
+    // than the wider container around it.
+    this.container.parentElement?.style.setProperty('--board-width', `${height * this.boardRenderer.boardToViewRatio}px`);
   }
 
   private handleClick(event: MouseEvent): void {

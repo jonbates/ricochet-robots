@@ -37,15 +37,34 @@ body {
    centered slot; they're never shown at once (see renderTarget's doc
    comment in main.ts). */
 #hud-top-strip {
-  flex: 0 0 88px;
+  flex: 0 0 56px;
   display: flex;
   align-items: center;
+}
+
+/* Centers within the board's own on-screen width (--board-width, set by
+   Game.ts on #app every resize) rather than this whole strip's width --
+   the board no longer fills its container (see BoardRenderer.applyAspect),
+   so centering across the full strip would drift right of the board. The
+   20px margin matches #board-area's own left margin so the two line up. */
+#hud-top-strip-inner {
+  width: var(--board-width, 100%);
+  margin-left: 20px;
+  display: flex;
   justify-content: center;
 }
 
 #board-area {
   flex: 1;
   min-height: 0;
+  /* Margin rather than padding -- clientWidth/clientHeight (what Game.ts
+     reads to size the renderer/camera) include an element's own padding but
+     not its margin, so padding here would size the renderer for a bigger
+     box than the canvas actually gets styled to (100% of the padded
+     content box), stretching/blurring it. Margin keeps the two in sync.
+     Smaller on top -- the header strip above it already provides its own
+     breathing room, so a full 20px there just doubled up the gap. */
+  margin: 8px 20px 20px;
 }
 
 #board-area canvas {
@@ -76,7 +95,8 @@ body {
   padding: 16px;
   display: flex;
   flex-direction: column;
-  justify-content: space-between;
+  justify-content: center;
+  gap: 24px;
   overflow-y: auto;
 }
 

@@ -199,6 +199,9 @@ export class BoardRenderer {
   readonly camera: THREE.OrthographicCamera;
 
   private readonly viewSize = BOARD_SIZE + 3; // grid extent plus a margin
+
+  /** What fraction of the container's height the board itself actually occupies on screen -- the camera's vertical extent is always exactly `viewSize` regardless of container shape, so this ratio (times the container's pixel height) is the board's rendered pixel width too, since applyAspect keeps a uniform (non-stretching) scale. Lets callers (the HUD) align themselves with the board's real footprint instead of the container's, now that applyAspect no longer centers the board within a wider container. */
+  readonly boardToViewRatio = BOARD_SIZE / this.viewSize;
   private readonly robotMeshes: Record<RobotColor, THREE.Mesh>;
   private readonly activeTargetHighlight: THREE.Mesh;
   private readonly selectionHighlight: THREE.Mesh;
@@ -542,9 +545,19 @@ export class BoardRenderer {
     this.applyAspect(width / height);
   }
 
+  /**
+   * A container wider than tall (the common case, once the left HUD sidebar
+   * takes a fixed width and the board gets whatever's left) shows extra
+   * horizontal world-space beyond the board's own square footprint -- this
+   * pins that extra space entirely to the right (left edge fixed at
+   * -viewSize/2) instead of splitting it evenly on both sides, so the board
+   * sits right up against its container's left edge (which is already just
+   * the 20px CSS margin away from the sidebar) rather than centered with a
+   * wide gap on the sidebar side.
+   */
   private applyAspect(aspect: number): void {
-    this.camera.left = (-this.viewSize * aspect) / 2;
-    this.camera.right = (this.viewSize * aspect) / 2;
+    this.camera.left = -this.viewSize / 2;
+    this.camera.right = -this.viewSize / 2 + this.viewSize * aspect;
     this.camera.top = this.viewSize / 2;
     this.camera.bottom = -this.viewSize / 2;
     this.camera.updateProjectionMatrix();
