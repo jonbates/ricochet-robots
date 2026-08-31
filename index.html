@@ -3,61 +3,109 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <title>Ricochet Robots</title>
   </head>
   <body>
-    <div id="app"></div>
+    <div id="hud-left">
+      <div id="hud-left-top">
+        <div id="hud-target" class="hud-panel">
+          <p class="hud-target-label">Target</p>
+          <div class="hud-target-swatch-row">
+            <span id="target-swatch" class="swatch"></span>
+            <span id="target-color-name" class="hud-target-name"></span>
+          </div>
+        </div>
 
-    <div id="hud-score" class="hud-panel">
-      <div class="score-row">
-        <span class="score-label">You</span>
-        <span id="score-player" class="score-value">0</span>
-      </div>
-      <div class="score-row">
-        <span class="score-label">AI</span>
-        <span id="score-ai" class="score-value">0</span>
-      </div>
-    </div>
+        <div id="hud-bid-input" class="hud-panel" hidden>
+          <p class="hud-instructions">Enter a move count, then click Bid next to your name</p>
+          <input id="bid-amount" type="number" min="1" step="1" value="3" />
+        </div>
 
-    <div id="hud-target" class="hud-panel">
-      <p class="hud-target-label">Target</p>
-      <div class="hud-target-swatch-row">
-        <span id="target-swatch" class="swatch"></span>
-        <span id="target-color-name" class="hud-target-name"></span>
-      </div>
-      <p id="hud-move-count" class="hud-move-count">Moves: 0</p>
-    </div>
+        <div id="hud-players" class="hud-panel"></div>
 
-    <div id="hud-controls" class="hud-panel">
-      <p class="hud-instructions">Click a robot to select it · Arrow keys to slide it · Z to undo · R to reset round</p>
-      <div class="hud-actions">
-        <button id="undo-btn" type="button" class="secondary-btn small-btn">Undo</button>
-        <button id="reset-round-btn" type="button" class="secondary-btn small-btn">Reset Round</button>
-        <button id="submit-btn" type="button" class="small-btn" disabled>Submit</button>
-      </div>
-    </div>
-
-    <div id="round-overlay" class="end-overlay">
-      <div class="end-overlay-card">
-        <h1 id="round-title"></h1>
-        <p id="round-detail" class="round-detail"></p>
-        <div class="end-overlay-actions">
-          <button id="round-continue-btn" type="button">Continue</button>
+        <!-- Directly below the bidding info (target/bid-input/players above),
+             not pinned to the bottom of the sidebar -- this is the round's
+             outcome messaging, previously a floating dialog over the board. -->
+        <div id="hud-round-result" class="hud-panel" hidden>
+          <p id="round-result-detail" class="hud-instructions"></p>
+          <div id="solution-detail" class="hud-solution-detail" hidden></div>
+          <button id="reveal-solution-btn" type="button" class="secondary-btn small-btn">Reveal Optimal Solution</button>
+          <button id="round-continue-btn" type="button" class="small-btn hud-continue-btn">Continue</button>
         </div>
       </div>
+
+      <div id="hud-left-bottom">
+        <div id="hud-give-up" class="hud-panel">
+          <button id="give-up-btn" type="button" class="secondary-btn small-btn">Give Up Round &amp; See Solution</button>
+        </div>
+
+        <div id="hud-attempting" class="hud-panel" hidden>
+          <p id="attempt-banner" class="hud-instructions"></p>
+          <p id="attempt-moves-remaining" class="hud-move-count"></p>
+          <p id="ricochet-hint" class="ricochet-hint" hidden>
+            Doesn't count -- a straight, unbent shot isn't a valid solve. Ricochet off something first.
+          </p>
+          <p class="hud-instructions">Click a robot to select it · Arrow keys to slide it · Z to undo</p>
+          <div class="hud-actions">
+            <button id="undo-btn" type="button" class="secondary-btn small-btn">Undo</button>
+            <button id="concede-btn" type="button" class="secondary-btn small-btn">Concede</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div id="app">
+      <div id="hud-top-strip">
+        <div id="hud-target-spotlight-slot"></div>
+        <div id="hud-timer" class="hud-panel" hidden>
+          <span id="hud-timer-text" class="hud-timer-text"></span>
+          <button id="end-countdown-btn" type="button" class="secondary-btn small-btn">End Countdown</button>
+        </div>
+      </div>
+      <div id="board-area"></div>
     </div>
 
     <div id="start-overlay" class="end-overlay visible">
       <div class="end-overlay-card start-overlay-card">
         <h1>Ricochet Robots</h1>
         <p class="start-blurb">
-          Slide robots in straight lines -- they never stop until they hit a wall, the edge, or another robot. Get the
-          matching-colored robot onto the target in as few total moves as possible, then submit. The AI then searches for
-          its own solution -- fewer moves wins the round, and if the AI can't find one in time, you win it outright.
+          Slide robots in straight lines -- they never stop until they hit a wall, the edge, or another robot. Once you
+          think you see a solution, bid how many moves it'll take. Other players have 60 seconds to add their own backup
+          bids. Lowest bid goes first; if they can't land it within their count, the next-lowest backup gets a fresh try.
           First to <span id="win-score"></span> round wins takes the match.
         </p>
-        <div class="end-overlay-actions">
-          <button id="start-btn" type="button">Play</button>
+        <div class="player-setup">
+          <label class="player-count-label" for="player-count-select">Players</label>
+          <select id="player-count-select">
+            <option value="1">1</option>
+            <option value="2" selected>2</option>
+            <option value="3">3</option>
+            <option value="4">4</option>
+          </select>
+          <div id="player-name-inputs" class="player-name-inputs">
+            <input type="text" class="player-name-input" data-player-index="0" value="Player 1" maxlength="20" />
+            <input type="text" class="player-name-input" data-player-index="1" value="Player 2" maxlength="20" />
+            <input type="text" class="player-name-input" data-player-index="2" value="Player 3" maxlength="20" />
+            <input type="text" class="player-name-input" data-player-index="3" value="Player 4" maxlength="20" />
+          </div>
+        </div>
+        <div class="search-depth-setup">
+          <label class="player-count-label" for="search-depth-input">Reveal search depth (moves)</label>
+          <input id="search-depth-input" type="number" min="1" max="20" step="1" />
+        </div>
+        <div class="board-select">
+          <button type="button" class="board-btn" data-variant="classic">
+            <span class="board-btn-title">Classic Board</span>
+            <span class="board-btn-desc">Straight walls only.</span>
+          </button>
+          <button type="button" class="board-btn" data-variant="diagonal">
+            <span class="board-btn-title">Diagonal Board</span>
+            <span class="board-btn-desc">
+              Adds colored diagonal deflectors -- a robot passes straight through one of its own color, otherwise it's
+              turned 90&deg; and keeps sliding.
+            </span>
+          </button>
         </div>
       </div>
     </div>
@@ -65,7 +113,6 @@
     <div id="match-over-overlay" class="end-overlay">
       <div class="end-overlay-card">
         <h1 id="match-over-title"></h1>
-        <p id="match-over-detail" class="round-detail"></p>
         <div class="end-overlay-actions">
           <button id="play-again-btn" type="button">Play Again</button>
         </div>

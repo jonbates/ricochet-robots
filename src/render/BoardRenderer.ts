@@ -2,8 +2,8 @@ import * as THREE from 'three';
 import { BOARD_SIZE, type Board, type Cell, ROBOT_COLORS, type RobotColor } from '../board/Board';
 import { VAULT_CELLS } from '../board/BoardLayout';
 import type { RobotPositions } from '../game/GameState';
-import type { Target } from '../board/BoardLayout';
-import { ROBOT_HEX } from '../colors';
+import type { Target, TargetShape } from '../board/BoardLayout';
+import { darkenHex, lightenHex, ROBOT_HEX, targetColorHex } from '../colors';
 
 const TILE_LIGHT = 0xeef2f6;
 const TILE_DARK = 0xdbe3ea;
@@ -14,12 +14,178 @@ const TILE_TOP = 0; // world Y of the playable tile surface
 const WALL_HEIGHT = 0.36;
 const ROBOT_RADIUS = 0.32;
 const ROBOT_HEIGHT = 0.4;
+const ROBOT_SIDES = 24; // smooth circle -- that outline is reserved for robots; target icons use stars/squares/etc instead, so the two never look alike
+const ROBOT_DOME_RADIUS = 0.18;
+const ROBOT_DOME_DARKEN = 0.55; // how much darker than the body the top "dome" decal is
+const ROBOT_RING_INNER = 0.36;
+const ROBOT_RING_OUTER = 0.42;
+const ROBOT_RING_LIGHTEN = 0.5; // how much lighter than the body the surrounding ring is
+const ROBOT_RING_Y_WORLD = 0.025; // just above the target-icon rings, so a robot standing on a target still reads as a robot first
 const WALL_THICKNESS = 0.08;
+const DEFLECTOR_LENGTH = 1.1;
+const DEFLECTOR_THICKNESS = 0.16;
+const DEFLECTOR_HEIGHT = 0.08;
+
+// col grows toward +x (east), row grows toward +z (south). A '\' diagonal
+// runs from the cell's NW corner to its SE corner -- i.e. along the
+// direction of increasing x and increasing z -- so a box whose long axis
+// starts on +x needs a -45 degree turn around Y to align with it; '/' runs
+// NE-to-SW (increasing x, decreasing z), the mirror image, +45 degrees.
+const DEFLECTOR_ROTATION_Y: Record<'/' | '\\', number> = {
+  '\\': -Math.PI / 4,
+  '/': Math.PI / 4,
+};
+
+const ICON_Y = 0.015;
+const ICON_RING_INNER = 0.3;
+const ICON_RING_OUTER = 0.38;
+const ICON_RING_Y_OFFSET = -0.003; // just under the icon shape, within the same group, to avoid z-fighting
+const VAULT_ICON_Y = 0.13; // sits on top of the vault box (height 0.12)
+const SOLUTION_PATH_Y = 0.09;
+const SOLUTION_DASH_LENGTH = 0.16;
+const SOLUTION_DASH_GAP = 0.12;
+const SOLUTION_DASH_WIDTH = 0.05;
+const SOLUTION_ARROW_LENGTH = 0.26;
+const SOLUTION_ARROW_WIDTH = 0.22;
+
+/** A flat, unlit shape geometry for a target icon -- square/diamond/triangle come "for free" out of a low-segment CircleGeometry with a chosen starting angle; the star and the warp target's swirl need real outlines. Deliberately no smooth-circle icon shape -- that outline is reserved for robots (see buildRobots), so a target is never visually confused with one. */
+function buildIconGeometry(shape: TargetShape): THREE.BufferGeometry {
+  switch (shape) {
+    case 'star':
+      return buildStarGeometry(0.3, 0.13, 5);
+    case 'square':
+      // 4-gon vertices land on the axes by default (a diamond); starting the
+      // first vertex at 45 degrees instead lands them on the diagonals, i.e.
+      // an axis-aligned square.
+      return new THREE.CircleGeometry(0.24, 4, Math.PI / 4);
+    case 'diamond':
+      return new THREE.CircleGeometry(0.28, 4);
+    case 'triangle':
+      return new THREE.CircleGeometry(0.3, 3);
+    case 'swirl':
+      return buildSwirlGeometry(0.32, 1.6, 0.16, 40);
+  }
+}
+
+/** A full five-pointed star outline, traced as one 10-vertex polygon alternating outer points and inner concave vertices. */
+function buildStarGeometry(outerRadius: number, innerRadius: number, points: number): THREE.ShapeGeometry {
+  const shape = new THREE.Shape();
+  for (let i = 0; i < points * 2; i++) {
+    const r = i % 2 === 0 ? outerRadius : innerRadius;
+    const angle = (i / (points * 2)) * Math.PI * 2 - Math.PI / 2;
+    const x = Math.cos(angle) * r;
+    const y = Math.sin(angle) * r;
+    if (i === 0) shape.moveTo(x, y);
+    else shape.lineTo(x, y);
+  }
+  shape.closePath();
+  return new THREE.ShapeGeometry(shape);
+}
+
+/**
+ * A filled spiral ribbon -- a circle swirling in on itself -- for the warp
+ * target: a vortex reads more like "pulls you elsewhere" than a star does.
+ * Traced as an Archimedean spiral (radius grows linearly with angle) with a
+ * stroke that tapers from a point at the center out to `strokeWidth` at the
+ * rim, built as a closed polygon (an outer edge traced outward, then the
+ * inner edge traced back inward) since flat filled shapes are what render
+ * reliably here -- see the dashed solution-path arrows below for the same
+ * "fake width via a filled ribbon" approach applied to a straight line.
+ */
+function buildSwirlGeometry(maxRadius: number, turns: number, strokeWidth: number, segments: number): THREE.ShapeGeometry {
+  const outer: { x: number; y: number }[] = [];
+  const inner: { x: number; y: number }[] = [];
+  for (let i = 0; i <= segments; i++) {
+    const t = i / segments;
+    const angle = t * turns * Math.PI * 2;
+    const r = t * maxRadius;
+    const cx = Math.cos(angle) * r;
+    const cy = Math.sin(angle) * r;
+    const nx = Math.cos(angle + Math.PI / 2);
+    const ny = Math.sin(angle + Math.PI / 2);
+    const halfWidth = (strokeWidth / 2) * t; // tapers to a point at the center
+    outer.push({ x: cx + nx * halfWidth, y: cy + ny * halfWidth });
+    inner.push({ x: cx - nx * halfWidth, y: cy - ny * halfWidth });
+  }
+  const shape = new THREE.Shape();
+  shape.moveTo(outer[0].x, outer[0].y);
+  for (const p of outer.slice(1)) shape.lineTo(p.x, p.y);
+  for (const p of inner.slice().reverse()) shape.lineTo(p.x, p.y);
+  shape.closePath();
+  return new THREE.ShapeGeometry(shape);
+}
+
+function disposeObject3D(obj: THREE.Object3D): void {
+  obj.traverse((child) => {
+    if (child instanceof THREE.Mesh) {
+      child.geometry.dispose();
+      (child.material as THREE.Material).dispose();
+    }
+  });
+}
 
 /** cell -> world-space (x,z) so col/row grow toward +x/+z, centered on the origin. */
 function cellToWorld(cell: Cell): { x: number; z: number } {
   const half = (BOARD_SIZE - 1) / 2;
   return { x: cell.col - half, z: cell.row - half };
+}
+
+interface PathRun {
+  a: { x: number; z: number };
+  b: { x: number; z: number };
+  dc: number; // -1, 0, or 1 -- the board-space direction of this run
+  dr: number;
+}
+
+/** Splits a cell-by-cell path into straight runs -- a deflector bend starts a new run -- as world-space segments, so each run can be dashed independently and the move's very last run can carry the arrowhead. */
+function splitPathIntoRuns(path: readonly Cell[]): PathRun[] {
+  const runs: PathRun[] = [];
+  let i = 0;
+  while (i < path.length - 1) {
+    const dc = Math.sign(path[i + 1].col - path[i].col);
+    const dr = Math.sign(path[i + 1].row - path[i].row);
+    let j = i + 1;
+    while (j < path.length - 1 && Math.sign(path[j + 1].col - path[j].col) === dc && Math.sign(path[j + 1].row - path[j].row) === dr) {
+      j++;
+    }
+    runs.push({ a: cellToWorld(path[i]), b: cellToWorld(path[j]), dc, dr });
+    i = j;
+  }
+  return runs;
+}
+
+/**
+ * Rotation.y that aims a shape authored pointing along local +X toward the
+ * given axis-aligned board direction (dc, dr). Verified against Three.js's
+ * actual rotateY convention the same way the deflector rotation above was:
+ * rotateY(-45deg) takes local +X to world (+x,+z) i.e. increasing col AND
+ * row -- so by the same formula, +x maps to east (0deg), +z to south
+ * (-90deg), -x to west (180deg), -z to north (+90deg).
+ */
+function directionAngle(dc: number, dr: number): number {
+  if (dc > 0) return 0;
+  if (dr > 0) return -Math.PI / 2;
+  if (dc < 0) return Math.PI;
+  return Math.PI / 2;
+}
+
+/** A thin flat rectangle with vertices authored directly in the XZ plane (y=0 throughout) rather than the default XY -- so aiming it only ever needs a single rotation.y, with no rotation.x to first lay it flat and no risk of getting the two rotations' combined order wrong. Long axis along local +X, matching directionAngle(). */
+function buildFlatRectGeometry(length: number, width: number): THREE.BufferGeometry {
+  const hl = length / 2;
+  const hw = width / 2;
+  const positions = new Float32Array([-hl, 0, -hw, hl, 0, -hw, hl, 0, hw, -hl, 0, -hw, hl, 0, hw, -hl, 0, hw]);
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+  return geometry;
+}
+
+/** A flat arrowhead triangle, apex at local +X -- see buildFlatRectGeometry for why it's authored directly in the XZ plane. */
+function buildFlatArrowGeometry(length: number, width: number): THREE.BufferGeometry {
+  const hw = width / 2;
+  const positions = new Float32Array([0, 0, hw, 0, 0, -hw, length, 0, 0]);
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+  return geometry;
 }
 
 /**
@@ -34,11 +200,13 @@ export class BoardRenderer {
 
   private readonly viewSize = BOARD_SIZE + 3; // grid extent plus a margin
   private readonly robotMeshes: Record<RobotColor, THREE.Mesh>;
-  private readonly targetMesh: THREE.Mesh;
-  private readonly targetMaterial: THREE.MeshBasicMaterial;
-  private readonly highlightMesh: THREE.Mesh;
+  private readonly activeTargetHighlight: THREE.Mesh;
+  private readonly selectionHighlight: THREE.Mesh;
+  private readonly vaultIconGroup: THREE.Group;
+  private vaultIconMesh: THREE.Group | null = null;
+  private solutionPathGroup: THREE.Group | null = null;
 
-  constructor(board: Board) {
+  constructor(board: Board, targets: readonly Target[]) {
     this.scene.background = new THREE.Color(0x0a1a2a);
     this.camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 100);
     this.camera.position.set(0, 30, 0);
@@ -56,12 +224,17 @@ export class BoardRenderer {
     this.buildVault();
     this.buildWalls(board);
     this.buildBoundaryFrame();
+    this.buildDeflectors(board);
 
     this.robotMeshes = this.buildRobots();
-    const { mesh, material } = this.buildTargetMarker();
-    this.targetMesh = mesh;
-    this.targetMaterial = material;
-    this.highlightMesh = this.buildHighlight();
+    this.buildTargetIcons(targets);
+    this.activeTargetHighlight = this.buildRing(0.36, 0.44, 0xffffff, 0.02);
+    this.selectionHighlight = this.buildRing(0.38, 0.48, 0xffffff, 0.03);
+    this.selectionHighlight.visible = false;
+    this.vaultIconGroup = new THREE.Group();
+    const { x: vaultX, z: vaultZ } = this.vaultCenter();
+    this.vaultIconGroup.position.set(vaultX, 0, vaultZ);
+    this.scene.add(this.vaultIconGroup);
   }
 
   private buildLights(): void {
@@ -101,21 +274,25 @@ export class BoardRenderer {
     this.scene.add(new THREE.LineSegments(geometry, material));
   }
 
+  private vaultCenter(): { x: number; z: number } {
+    const cols = VAULT_CELLS.map((c) => c.col);
+    const rows = VAULT_CELLS.map((c) => c.row);
+    const centerCol = (Math.min(...cols) + Math.max(...cols)) / 2;
+    const centerRow = (Math.min(...rows) + Math.max(...rows)) / 2;
+    return cellToWorld({ col: centerCol, row: centerRow });
+  }
+
   private buildVault(): void {
     const cols = VAULT_CELLS.map((c) => c.col);
     const rows = VAULT_CELLS.map((c) => c.row);
-    const minCol = Math.min(...cols);
-    const maxCol = Math.max(...cols);
-    const minRow = Math.min(...rows);
-    const maxRow = Math.max(...rows);
-    const width = maxCol - minCol + 1;
-    const depth = maxRow - minRow + 1;
-    const { x: minX, z: minZ } = cellToWorld({ col: minCol, row: minRow });
+    const width = Math.max(...cols) - Math.min(...cols) + 1;
+    const depth = Math.max(...rows) - Math.min(...rows) + 1;
+    const { x, z } = this.vaultCenter();
 
     const geometry = new THREE.BoxGeometry(width, 0.12, depth);
     const material = new THREE.MeshStandardMaterial({ color: VAULT_COLOR, roughness: 0.7 });
     const mesh = new THREE.Mesh(geometry, material);
-    mesh.position.set(minX + (width - 1) / 2, 0.06, minZ + (depth - 1) / 2);
+    mesh.position.set(x, 0.06, z);
     this.scene.add(mesh);
   }
 
@@ -160,36 +337,100 @@ export class BoardRenderer {
     this.scene.add(north, south, west, east);
   }
 
+  /** Diagonal bars for the diagonal board variant -- a no-op (empty list) for the classic variant, which has none. */
+  private buildDeflectors(board: Board): void {
+    const geometry = new THREE.BoxGeometry(DEFLECTOR_LENGTH, DEFLECTOR_HEIGHT, DEFLECTOR_THICKNESS);
+    for (const deflector of board.getAllDeflectors()) {
+      const material = new THREE.MeshStandardMaterial({ color: ROBOT_HEX[deflector.color], roughness: 0.4 });
+      const mesh = new THREE.Mesh(geometry, material);
+      const { x, z } = cellToWorld(deflector);
+      mesh.position.set(x, DEFLECTOR_HEIGHT / 2, z);
+      mesh.rotation.y = DEFLECTOR_ROTATION_Y[deflector.orientation];
+      this.scene.add(mesh);
+    }
+  }
+
+  /**
+   * A true circular prism -- the smooth-circle outline is reserved for
+   * robots specifically; target icons use star/square/diamond/triangle/
+   * swirl instead (see buildIconGeometry), so a robot is never visually
+   * confused with a same-colored target sitting on the same or an adjacent
+   * cell. Flat/unlit body (MeshBasicMaterial) so its color renders
+   * pixel-identical to the target icons, which are also unlit -- a lit
+   * material picks up ambient/directional shading that made the robot read
+   * as a visibly different (dimmer) shade of the same color. A smaller,
+   * darker circular "dome" decal sits on top as a cheap top-down stand-in
+   * for a rounded 3D robot body, and a lighter ring sits around its base on
+   * the tile -- both opt out of raycasting so clicks still resolve to the
+   * body mesh beneath them.
+   */
   private buildRobots(): Record<RobotColor, THREE.Mesh> {
-    const geometry = new THREE.CylinderGeometry(ROBOT_RADIUS, ROBOT_RADIUS, ROBOT_HEIGHT, 24);
+    const geometry = new THREE.CylinderGeometry(ROBOT_RADIUS, ROBOT_RADIUS, ROBOT_HEIGHT, ROBOT_SIDES);
+    const domeGeometry = new THREE.CircleGeometry(ROBOT_DOME_RADIUS, 24);
+    const ringGeometry = new THREE.RingGeometry(ROBOT_RING_INNER, ROBOT_RING_OUTER, 32);
     const out = {} as Record<RobotColor, THREE.Mesh>;
     for (const color of ROBOT_COLORS) {
-      const material = new THREE.MeshStandardMaterial({ color: ROBOT_HEX[color], roughness: 0.5 });
+      const material = new THREE.MeshBasicMaterial({ color: ROBOT_HEX[color] });
       const mesh = new THREE.Mesh(geometry, material);
       mesh.position.y = ROBOT_HEIGHT / 2;
+
+      const domeMaterial = new THREE.MeshBasicMaterial({ color: darkenHex(ROBOT_HEX[color], ROBOT_DOME_DARKEN) });
+      const dome = new THREE.Mesh(domeGeometry, domeMaterial);
+      dome.rotation.x = -Math.PI / 2;
+      dome.position.y = ROBOT_HEIGHT / 2 + 0.001; // just above the body's own top face, in its local frame
+      dome.raycast = () => {};
+      mesh.add(dome);
+
+      const ringMaterial = new THREE.MeshBasicMaterial({ color: lightenHex(ROBOT_HEX[color], ROBOT_RING_LIGHTEN), side: THREE.DoubleSide });
+      const ring = new THREE.Mesh(ringGeometry, ringMaterial);
+      ring.rotation.x = -Math.PI / 2;
+      ring.position.y = ROBOT_RING_Y_WORLD - ROBOT_HEIGHT / 2; // local offset that lands the ring at world y = ROBOT_RING_Y_WORLD, on the tile around the body's base
+      ring.raycast = () => {};
+      mesh.add(ring);
+
       this.scene.add(mesh);
       out[color] = mesh;
     }
     return out;
   }
 
-  private buildTargetMarker(): { mesh: THREE.Mesh; material: THREE.MeshBasicMaterial } {
-    const geometry = new THREE.RingGeometry(0.24, 0.4, 32);
-    const material = new THREE.MeshBasicMaterial({ color: ROBOT_HEX.red, side: THREE.DoubleSide });
-    const mesh = new THREE.Mesh(geometry, material);
-    mesh.rotation.x = -Math.PI / 2;
-    mesh.position.y = 0.02;
-    this.scene.add(mesh);
-    return { mesh, material };
+  /** One static icon per target, never moved again once built -- the active one is called out separately by repositioning activeTargetHighlight onto its cell in setTarget(). */
+  private buildTargetIcons(targets: readonly Target[]): void {
+    for (const target of targets) {
+      const group = this.buildIconWithRing(target);
+      const { x, z } = cellToWorld(target.cell);
+      group.position.set(x, ICON_Y, z);
+      this.scene.add(group);
+    }
   }
 
-  private buildHighlight(): THREE.Mesh {
-    const geometry = new THREE.RingGeometry(0.38, 0.48, 32);
-    const material = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.85 });
+  private buildIconMesh(target: Target): THREE.Mesh {
+    const geometry = buildIconGeometry(target.shape);
+    const material = new THREE.MeshBasicMaterial({ color: targetColorHex(target.color), side: THREE.DoubleSide });
     const mesh = new THREE.Mesh(geometry, material);
     mesh.rotation.x = -Math.PI / 2;
-    mesh.position.y = 0.03;
-    mesh.visible = false;
+    return mesh;
+  }
+
+  /** An icon shape plus a ring in that same target color drawn around it -- shapes alone (especially the star vs. the round robots, or the swirl vs. a busy board) can be hard to tell apart at a glance, so the surrounding color ring gives an immediate "which robot" cue independent of the inner shape. */
+  private buildIconWithRing(target: Target): THREE.Group {
+    const group = new THREE.Group();
+    const ringGeometry = new THREE.RingGeometry(ICON_RING_INNER, ICON_RING_OUTER, 32);
+    const ringMaterial = new THREE.MeshBasicMaterial({ color: targetColorHex(target.color), side: THREE.DoubleSide });
+    const ring = new THREE.Mesh(ringGeometry, ringMaterial);
+    ring.rotation.x = -Math.PI / 2;
+    ring.position.y = ICON_RING_Y_OFFSET;
+    group.add(ring);
+    group.add(this.buildIconMesh(target));
+    return group;
+  }
+
+  private buildRing(innerRadius: number, outerRadius: number, color: number, y: number): THREE.Mesh {
+    const geometry = new THREE.RingGeometry(innerRadius, outerRadius, 32);
+    const material = new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.85, side: THREE.DoubleSide });
+    const mesh = new THREE.Mesh(geometry, material);
+    mesh.rotation.x = -Math.PI / 2;
+    mesh.position.y = y;
     this.scene.add(mesh);
     return mesh;
   }
@@ -202,21 +443,88 @@ export class BoardRenderer {
     }
   }
 
+  /** Moves the highlight ring onto whichever static target icon is now active, and refreshes the vault's reference-card copy of that same icon. */
   setTarget(target: Target): void {
     const { x, z } = cellToWorld(target.cell);
-    this.targetMesh.position.x = x;
-    this.targetMesh.position.z = z;
-    this.targetMaterial.color.setHex(ROBOT_HEX[target.color]);
+    this.activeTargetHighlight.position.x = x;
+    this.activeTargetHighlight.position.z = z;
+
+    if (this.vaultIconMesh) {
+      this.vaultIconGroup.remove(this.vaultIconMesh);
+      disposeObject3D(this.vaultIconMesh);
+    }
+    const group = this.buildIconWithRing(target);
+    group.scale.setScalar(1.4); // bigger than the on-board icons -- it's a reference card, meant to be read at a glance
+    group.position.y = VAULT_ICON_Y;
+    this.vaultIconGroup.add(group);
+    this.vaultIconMesh = group;
   }
 
   setSelected(color: RobotColor | null): void {
     if (!color) {
-      this.highlightMesh.visible = false;
+      this.selectionHighlight.visible = false;
       return;
     }
-    this.highlightMesh.visible = true;
-    this.highlightMesh.position.x = this.robotMeshes[color].position.x;
-    this.highlightMesh.position.z = this.robotMeshes[color].position.z;
+    this.selectionHighlight.visible = true;
+    this.selectionHighlight.position.x = this.robotMeshes[color].position.x;
+    this.selectionHighlight.position.z = this.robotMeshes[color].position.z;
+  }
+
+  /**
+   * Draws each move of a revealed solution as a dashed arrow in that move's
+   * robot color, tracing its actual on-board path cell-by-cell (a deflector
+   * can bend it, so a single move can have more than one straight run) --
+   * dashes along the way, one arrowhead at the very end pointing in the
+   * direction the robot was traveling when it stopped. Flat rectangles/
+   * triangles rather than a THREE.Line: WebGL ignores line-width entirely,
+   * so a real line would always render at 1px regardless of styling --
+   * small filled meshes stay reliably visible (and orientable) at any zoom.
+   */
+  showSolutionPath(moves: readonly { color: RobotColor; path: readonly Cell[] }[]): void {
+    this.clearSolutionPath();
+    const group = new THREE.Group();
+    const dashGeometry = buildFlatRectGeometry(SOLUTION_DASH_LENGTH, SOLUTION_DASH_WIDTH);
+    const arrowGeometry = buildFlatArrowGeometry(SOLUTION_ARROW_LENGTH, SOLUTION_ARROW_WIDTH);
+
+    for (const move of moves) {
+      const material = new THREE.MeshBasicMaterial({ color: ROBOT_HEX[move.color], side: THREE.DoubleSide });
+      const runs = splitPathIntoRuns(move.path);
+
+      for (const run of runs) {
+        const angle = directionAngle(run.dc, run.dr);
+        const length = Math.hypot(run.b.x - run.a.x, run.b.z - run.a.z);
+        const dashCount = Math.max(1, Math.round(length / (SOLUTION_DASH_LENGTH + SOLUTION_DASH_GAP)));
+        for (let d = 0; d < dashCount; d++) {
+          const t = (d + 0.5) / dashCount; // centers each dash within its own slot along the run
+          const dash = new THREE.Mesh(dashGeometry, material);
+          dash.position.set(run.a.x + (run.b.x - run.a.x) * t, SOLUTION_PATH_Y, run.a.z + (run.b.z - run.a.z) * t);
+          dash.rotation.y = angle;
+          group.add(dash);
+        }
+      }
+
+      const lastRun = runs[runs.length - 1];
+      if (lastRun) {
+        const arrow = new THREE.Mesh(arrowGeometry, material);
+        arrow.position.set(lastRun.b.x, SOLUTION_PATH_Y, lastRun.b.z);
+        arrow.rotation.y = directionAngle(lastRun.dc, lastRun.dr);
+        group.add(arrow);
+      }
+    }
+    this.scene.add(group);
+    this.solutionPathGroup = group;
+  }
+
+  clearSolutionPath(): void {
+    if (!this.solutionPathGroup) return;
+    this.scene.remove(this.solutionPathGroup);
+    for (const child of this.solutionPathGroup.children) {
+      if (child instanceof THREE.Mesh) {
+        child.geometry.dispose();
+        (child.material as THREE.Material).dispose();
+      }
+    }
+    this.solutionPathGroup = null;
   }
 
   robotColorAt(intersectedObject: THREE.Object3D): RobotColor | null {
