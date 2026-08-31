@@ -47,6 +47,8 @@ const SOLUTION_DASH_GAP = 0.12;
 const SOLUTION_DASH_WIDTH = 0.05;
 const SOLUTION_ARROW_LENGTH = 0.26;
 const SOLUTION_ARROW_WIDTH = 0.22;
+const SOLUTION_JITTER_STEP = 0.07; // sideways offset per move, so overlapping moves (a later one retracing an earlier one's cells) run side by side instead of exactly on top of each other
+const SOLUTION_JITTER_CYCLE = 5; // offsets cycle through a small +/- range rather than drifting further apart with every extra move in a long solution
 
 /** A flat, unlit shape geometry for a target icon -- square/diamond/triangle come "for free" out of a low-segment CircleGeometry with a chosen starting angle; the star and the warp target's swirl need real outlines. Deliberately no smooth-circle icon shape -- that outline is reserved for robots (see buildRobots), so a target is never visually confused with one. */
 function buildIconGeometry(shape: TargetShape): THREE.BufferGeometry {
@@ -489,18 +491,26 @@ export class BoardRenderer {
     const dashGeometry = buildFlatRectGeometry(SOLUTION_DASH_LENGTH, SOLUTION_DASH_WIDTH);
     const arrowGeometry = buildFlatArrowGeometry(SOLUTION_ARROW_LENGTH, SOLUTION_ARROW_WIDTH);
 
-    for (const move of moves) {
+    moves.forEach((move, moveIndex) => {
       const material = new THREE.MeshBasicMaterial({ color: ROBOT_HEX[move.color], side: THREE.DoubleSide });
       const runs = splitPathIntoRuns(move.path);
+      // A consistent per-move sideways offset, applied perpendicular to
+      // whichever direction that move is running at each point -- so a
+      // later move's dashes/arrow sit visibly beside an earlier move's
+      // instead of exactly coincident, wherever their paths happen to cross
+      // or retrace the same cells.
+      const jitter = ((moveIndex % SOLUTION_JITTER_CYCLE) - Math.floor(SOLUTION_JITTER_CYCLE / 2)) * SOLUTION_JITTER_STEP;
 
       for (const run of runs) {
         const angle = directionAngle(run.dc, run.dr);
+        const perpX = -run.dr * jitter;
+        const perpZ = run.dc * jitter;
         const length = Math.hypot(run.b.x - run.a.x, run.b.z - run.a.z);
         const dashCount = Math.max(1, Math.round(length / (SOLUTION_DASH_LENGTH + SOLUTION_DASH_GAP)));
         for (let d = 0; d < dashCount; d++) {
           const t = (d + 0.5) / dashCount; // centers each dash within its own slot along the run
           const dash = new THREE.Mesh(dashGeometry, material);
-          dash.position.set(run.a.x + (run.b.x - run.a.x) * t, SOLUTION_PATH_Y, run.a.z + (run.b.z - run.a.z) * t);
+          dash.position.set(run.a.x + (run.b.x - run.a.x) * t + perpX, SOLUTION_PATH_Y, run.a.z + (run.b.z - run.a.z) * t + perpZ);
           dash.rotation.y = angle;
           group.add(dash);
         }
@@ -508,12 +518,14 @@ export class BoardRenderer {
 
       const lastRun = runs[runs.length - 1];
       if (lastRun) {
+        const perpX = -lastRun.dr * jitter;
+        const perpZ = lastRun.dc * jitter;
         const arrow = new THREE.Mesh(arrowGeometry, material);
-        arrow.position.set(lastRun.b.x, SOLUTION_PATH_Y, lastRun.b.z);
+        arrow.position.set(lastRun.b.x + perpX, SOLUTION_PATH_Y, lastRun.b.z + perpZ);
         arrow.rotation.y = directionAngle(lastRun.dc, lastRun.dr);
         group.add(arrow);
       }
-    }
+    });
     this.scene.add(group);
     this.solutionPathGroup = group;
   }
