@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Ricochet Robots</title>
+  </head>
+  <body>
+    <div id="app"></div>
+
+    <div id="hud-score" class="hud-panel">
+      <div class="score-row">
+        <span class="score-label">You</span>
+        <span id="score-player" class="score-value">0</span>
+      </div>
+      <div class="score-row">
+        <span class="score-label">AI</span>
+        <span id="score-ai" class="score-value">0</span>
+      </div>
+    </div>
+
+    <div id="hud-target" class="hud-panel">
+      <p class="hud-target-label">Target</p>
+      <div class="hud-target-swatch-row">
+        <span id="target-swatch" class="swatch"></span>
+        <span id="target-color-name" class="hud-target-name"></span>
+      </div>
+      <p id="hud-move-count" class="hud-move-count">Moves: 0</p>
+    </div>
+
+    <div id="hud-controls" class="hud-panel">
+      <p class="hud-instructions">Click a robot to select it · Arrow keys to slide it · Z to undo · R to reset round</p>
+      <div class="hud-actions">
+        <button id="undo-btn" type="button" class="secondary-btn small-btn">Undo</button>
+        <button id="reset-round-btn" type="button" class="secondary-btn small-btn">Reset Round</button>
+        <button id="submit-btn" type="button" class="small-btn" disabled>Submit</button>
+      </div>
+    </div>
+
+    <div id="round-overlay" class="end-overlay">
+      <div class="end-overlay-card">
+        <h1 id="round-title"></h1>
+        <p id="round-detail" class="round-detail"></p>
+        <div class="end-overlay-actions">
+          <button id="round-continue-btn" type="button">Continue</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="start-overlay" class="end-overlay visible">
+      <div class="end-overlay-card start-overlay-card">
+        <h1>Ricochet Robots</h1>
+        <p class="start-blurb">
+          Slide robots in straight lines -- they never stop until they hit a wall, the edge, or another robot. Get the
+          matching-colored robot onto the target in as few total moves as possible, then submit. The AI then searches for
+          its own solution -- fewer moves wins the round, and if the AI can't find one in time, you win it outright.
+          First to <span id="win-score"></span> round wins takes the match.
+        </p>
+        <div class="end-overlay-actions">
+          <button id="start-btn" type="button">Play</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="match-over-overlay" class="end-overlay">
+      <div class="end-overlay-card">
+        <h1 id="match-over-title"></h1>
+        <p id="match-over-detail" class="round-detail"></p>
+        <div class="end-overlay-actions">
+          <button id="play-again-btn" type="button">Play Again</button>
+        </div>
+      </div>
+    </div>
+
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
