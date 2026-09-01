@@ -61,9 +61,14 @@ body {
 /* A twin of #hud-top-strip below the board instead of above it -- the
    countdown timer during bidding, or the active bidder's move count during
    an attempt, read more naturally right under the board where the action
-   is than tucked in the sidebar. */
+   is than tucked in the sidebar. No fixed height, same reasoning as
+   #hud-top-strip: both #hud-timer and #hud-attempt-status are hidden during
+   the `resolved` phase, and on a stacked mobile layout this strip sits
+   between the board and #hud-left -- a fixed height left a large empty gap
+   above the sidebar's own content on exactly the phase (round just ended)
+   where a player is most likely to be reading it. */
 #hud-bottom-strip {
-  @apply flex-none h-14 flex items-center;
+  @apply flex-none flex items-center;
 }
 
 /* Centers within the board's own on-screen width (--board-width, set by
@@ -318,6 +323,11 @@ body {
   @apply flex gap-4;
 }
 
+/* Play Online sits in its own .board-select row (a single-button "row") below the classic/diagonal pair -- it's not a board-variant choice, so it doesn't join that same row as a third option, but still needs the same breathing room between rows. */
+.board-select + .board-select {
+  @apply mt-4;
+}
+
 .board-btn {
   @apply flex-1 flex flex-col items-center gap-2 px-4 py-5 rounded-[10px] border border-[rgba(255,255,255,0.18)] bg-[rgba(255,255,255,0.04)] text-[#e8f4ff] cursor-pointer text-center transition-[background,border-color,transform] duration-150 ease-out;
 }
@@ -352,10 +362,6 @@ body {
 
 .end-overlay-actions button.secondary-btn:hover {
   @apply bg-[rgba(255,255,255,0.1)];
-}
-
-.play-online-btn {
-  @apply mt-4;
 }
 
 .lobby-overlay-card {
