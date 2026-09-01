@@ -88,6 +88,4 @@ export interface StateSnapshot {
   activeBidIndex: number | null;
   lastRoundWinnerIndex: number | null;
   bidCountdownMs: number | null;
-  /** The most recently resolved round's own attempt trail, captured before GameState clears moveHistory -- see Game.ts's captureAttemptTrail/revealSolution. */
-  lastAttemptTrail: { color: RobotColor; path: { col: number; row: number }[] }[];
 }

@@ -547,18 +547,12 @@ export class BoardRenderer {
    * attempt (see showSolutionPath / showMoveTrail below) -- numbering is
    * the only real difference between the two.
    */
-  private drawDashedMoves(
-    group: THREE.Group,
-    moves: readonly { color: RobotColor; path: readonly Cell[] }[],
-    numbered: boolean,
-    lighten = 0,
-  ): void {
+  private drawDashedMoves(group: THREE.Group, moves: readonly { color: RobotColor; path: readonly Cell[] }[], numbered: boolean): void {
     const dashGeometry = buildFlatRectGeometry(SOLUTION_DASH_LENGTH, SOLUTION_DASH_WIDTH);
     const arrowGeometry = buildFlatArrowGeometry(SOLUTION_ARROW_LENGTH, SOLUTION_ARROW_WIDTH);
 
     moves.forEach((move, moveIndex) => {
-      const moveColor = lighten > 0 ? lightenHex(ROBOT_HEX[move.color], lighten) : ROBOT_HEX[move.color];
-      const material = new THREE.MeshBasicMaterial({ color: moveColor, side: THREE.DoubleSide });
+      const material = new THREE.MeshBasicMaterial({ color: ROBOT_HEX[move.color], side: THREE.DoubleSide });
       const runs = splitPathIntoRuns(move.path);
       // A consistent per-move sideways offset, applied perpendicular to
       // whichever direction that move is running at each point -- so a
@@ -586,7 +580,7 @@ export class BoardRenderer {
       if (numbered && firstRun) {
         const perpX = -firstRun.dr * jitter;
         const perpZ = firstRun.dc * jitter;
-        const label = buildNumberLabel(moveIndex + 1, moveColor);
+        const label = buildNumberLabel(moveIndex + 1, ROBOT_HEX[move.color]);
         label.position.set(firstRun.a.x + perpX, TRAIL_LABEL_Y, firstRun.a.z + perpZ);
         group.add(label);
       }
@@ -619,23 +613,12 @@ export class BoardRenderer {
     this.solutionPathGroup = null;
   }
 
-  /**
-   * The live trail of moves an attempting player has actually made so far
-   * this turn -- numbered in move order (1, 2, 3, ...) so a multi-move
-   * attempt stays easy to read back. Redraw with the full current move list
-   * on every move/undo; an empty list just clears it.
-   *
-   * `lighten` (0-1) shifts the trail toward white -- used once a round
-   * resolves and the player clicks "Reveal Optimal Solution": Game.ts
-   * redraws the same attempt trail at a lightened shade so it reads as "what
-   * you did" sitting behind the freshly drawn, full-color optimal solution,
-   * rather than the two competing for attention in identical colors.
-   */
-  showMoveTrail(moves: readonly { color: RobotColor; path: readonly Cell[] }[], lighten = 0): void {
+  /** The live trail of moves an attempting player has actually made so far this turn -- numbered in move order (1, 2, 3, ...) so a multi-move attempt stays easy to read back. Redraw with the full current move list on every move/undo; an empty list just clears it. Also cleared outright by Game.revealSolution(), rather than left drawn alongside the freshly revealed optimal path. */
+  showMoveTrail(moves: readonly { color: RobotColor; path: readonly Cell[] }[]): void {
     this.clearMoveTrail();
     if (moves.length === 0) return;
     const group = new THREE.Group();
-    this.drawDashedMoves(group, moves, true, lighten);
+    this.drawDashedMoves(group, moves, true);
     this.scene.add(group);
     this.moveTrailGroup = group;
   }

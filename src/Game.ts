@@ -12,9 +12,6 @@ export const WIN_SCORE = 5;
 /** See revealSolution()'s doc comment -- how many moves deep the solver searches by default when no explicit depth is passed to the Game constructor. The user can raise or lower this (a "Search Depth" control on the start screen); higher finds longer solutions but risks a slower response, since a bounded-failure search (proving a target unreachable within the cap) is the expensive path. */
 export const DEFAULT_SEARCH_DEPTH = 10;
 
-/** How far toward white revealSolution() shifts the player's own attempt trail (see BoardRenderer.showMoveTrail's `lighten` param) -- lets the freshly drawn, full-color optimal solution read as the primary answer, with "what you actually did" visible but visually secondary. */
-const REVEAL_TRAIL_LIGHTEN = 0.55;
-
 export type NetRole = 'local' | 'host' | 'client';
 
 /**
@@ -107,8 +104,6 @@ export class Game {
   private matchOverFired = false;
   private lastBidCountdownMs: number | null = null;
   private lastHeartbeatAt = 0;
-  /** The most recently resolved round's own attempt trail, captured before GameState clears moveHistory (see captureAttemptTrail) -- redrawn at a lighter shade by revealSolution(). */
-  private lastAttemptTrail: { color: RobotColor; path: { col: number; row: number }[] }[] = [];
 
   constructor(
     container: HTMLElement,
@@ -282,7 +277,6 @@ export class Game {
       void this.net.room?.action.send({ type: 'giveUpRound' });
       return;
     }
-    this.captureAttemptTrail(); // GameState.giveUpRound() clears moveHistory below, so this is the last chance to remember what was attempted
     this.state.giveUpRound();
     this.syncRobots();
     this.broadcastState();
@@ -324,10 +318,10 @@ export class Game {
     try {
       const result = solve(this.board, this.state.roundStartRobots, this.state.target, this.searchDepth);
       this.boardRenderer.showSolutionPath(this.pathsForMoves(result.moves));
-      // Redraws the round's own attempt trail lightened, so it reads as "what
-      // you did" behind the fresh, full-color optimal answer instead of the
-      // two competing in identical colors.
-      this.boardRenderer.showMoveTrail(this.lastAttemptTrail, REVEAL_TRAIL_LIGHTEN);
+      // Clears the round's own attempt trail rather than leaving it drawn
+      // alongside the optimal one -- the two competing on the board at once
+      // read as more confusing than helpful.
+      this.boardRenderer.clearMoveTrail();
       return result;
     } catch {
       this.boardRenderer.clearSolutionPath();
@@ -350,11 +344,6 @@ export class Game {
       robots[move.color] = move.to;
     }
     return paths;
-  }
-
-  /** Snapshots the current attempt's move trail for revealSolution()'s lightened overlay -- must run before any GameState call that clears moveHistory (giveUpRound), and is safe to call redundantly otherwise since it just re-derives from whatever moveHistory currently holds. */
-  private captureAttemptTrail(): void {
-    this.lastAttemptTrail = this.pathsForMoves(this.state.moveHistory);
   }
 
   /** Starts the next round once the current one is resolved. No-op otherwise. Any connected player may trigger it. */
@@ -464,14 +453,9 @@ export class Game {
     if (this.state.phase !== 'attempting') return;
     if (this.state.isSolved()) {
       this.state.recordSuccess();
-      this.captureAttemptTrail();
       this.broadcastState();
     } else if ((this.state.remainingMoves ?? 1) <= 0) {
       this.state.concede();
-      // TS narrows state.phase to the literal 'attempting' from the early
-      // return above and doesn't widen it back across the concede() call --
-      // the cast just tells it what's actually true after that mutation.
-      if ((this.state.phase as RoundPhase) === 'resolved') this.captureAttemptTrail(); // no backups left -- this was the round's final attempt
       this.syncRobots();
       this.broadcastState();
     }
@@ -528,7 +512,6 @@ export class Game {
       case 'concede':
         if (!isSendersTurn) return;
         this.state.concede();
-        if (this.state.phase === 'resolved') this.captureAttemptTrail(); // no backups left -- this was the round's final attempt
         this.syncRobots();
         this.broadcastState();
         return;
@@ -537,7 +520,6 @@ export class Game {
         this.broadcastState();
         return;
       case 'giveUpRound':
-        this.captureAttemptTrail(); // GameState.giveUpRound() clears moveHistory below, so this is the last chance to remember what was attempted
         this.state.giveUpRound();
         this.syncRobots();
         this.broadcastState();
@@ -567,7 +549,6 @@ export class Game {
       activeBidIndex: this.state.activeBidIndex,
       lastRoundWinnerIndex: this.state.lastRoundWinnerIndex,
       bidCountdownMs,
-      lastAttemptTrail: this.lastAttemptTrail.map((m) => ({ color: m.color, path: m.path.map((c) => ({ ...c })) })),
     };
     void this.net.room.state.send(snapshot);
   }
@@ -594,7 +575,6 @@ export class Game {
     this.state.activeBidIndex = snapshot.activeBidIndex;
     this.state.lastRoundWinnerIndex = snapshot.lastRoundWinnerIndex;
     this.lastBidCountdownMs = snapshot.bidCountdownMs;
-    this.lastAttemptTrail = snapshot.lastAttemptTrail.map((m) => ({ color: m.color, path: m.path.map((c) => ({ ...c })) }));
     if (targetChanged) this.boardRenderer.setTarget(this.state.target);
     this.syncRobots();
   }
