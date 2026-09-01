@@ -242,6 +242,8 @@ export class BoardRenderer {
   /** What fraction of the container's height the board itself occupies on screen when the container is at least as wide as it is tall (aspect >= 1) -- the camera's vertical extent is exactly `viewSize` in that case, so this ratio (times the container's pixel height) is the board's rendered pixel width too, since applyAspect keeps a uniform (non-stretching) scale. Below aspect 1 (a narrow, stacked mobile container) the board's width is the *container's* full width instead -- see Game.ts's handleResize, which picks between the two. */
   readonly boardToViewRatio = BOARD_SIZE / this.viewSize;
   private readonly robotMeshes: Record<RobotColor, THREE.Mesh>;
+  private readonly pickRaycaster = new THREE.Raycaster();
+  private readonly pickPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -TILE_TOP); // the tile surface, for cellAt()
   private readonly activeTargetHighlight: THREE.Mesh;
   private readonly selectionHighlight: THREE.Mesh;
   private readonly vaultIconGroup: THREE.Group;
@@ -630,15 +632,26 @@ export class BoardRenderer {
     this.moveTrailGroup = null;
   }
 
-  robotColorAt(intersectedObject: THREE.Object3D): RobotColor | null {
-    for (const color of ROBOT_COLORS) {
-      if (this.robotMeshes[color] === intersectedObject) return color;
-    }
-    return null;
-  }
-
-  get pickableRobotMeshes(): THREE.Mesh[] {
-    return ROBOT_COLORS.map((c) => this.robotMeshes[c]);
+  /**
+   * Which board cell (if any) a click NDC coordinate falls on -- intersects
+   * the camera ray against the tile plane and rounds to the nearest cell,
+   * rather than raycasting against the robot meshes themselves. A robot's
+   * own circular mesh (ROBOT_RADIUS 0.32) covers well under half of its
+   * 1x1 cell, so hit-testing against the mesh directly meant a tap had to
+   * land inside that small circle to register -- this way, tapping anywhere
+   * in the cell a robot occupies selects it, matching the actual clickable
+   * area a player would expect on a touch screen. Returns null for a click
+   * off the board entirely (outside the BOARD_SIZE grid).
+   */
+  cellAt(ndc: THREE.Vector2): Cell | null {
+    this.pickRaycaster.setFromCamera(ndc, this.camera);
+    const point = new THREE.Vector3();
+    if (!this.pickRaycaster.ray.intersectPlane(this.pickPlane, point)) return null;
+    const half = (BOARD_SIZE - 1) / 2;
+    const col = Math.round(point.x + half);
+    const row = Math.round(point.z + half);
+    if (col < 0 || col >= BOARD_SIZE || row < 0 || row >= BOARD_SIZE) return null;
+    return { col, row };
   }
 
   resize(width: number, height: number): void {

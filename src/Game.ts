@@ -93,7 +93,6 @@ export class Game {
   private readonly targets: readonly Target[];
   private readonly renderer: THREE.WebGLRenderer;
   private readonly boardRenderer: BoardRenderer;
-  private readonly raycaster = new THREE.Raycaster();
   private readonly resizeObserver: ResizeObserver;
   private readonly searchDepth: number;
   private readonly net: NetworkContext;
@@ -410,9 +409,8 @@ export class Game {
       ((event.clientX - rect.left) / rect.width) * 2 - 1,
       -((event.clientY - rect.top) / rect.height) * 2 + 1,
     );
-    this.raycaster.setFromCamera(ndc, this.boardRenderer.camera);
-    const hits = this.raycaster.intersectObjects(this.boardRenderer.pickableRobotMeshes);
-    const color = hits.length > 0 ? this.boardRenderer.robotColorAt(hits[0].object) : null;
+    const cell = this.boardRenderer.cellAt(ndc);
+    const color = cell ? (ROBOT_COLORS.find((c) => sameCell(this.state.robots[c], cell)) ?? null) : null;
 
     if (this.net.role === 'client') {
       void this.net.room?.action.send(color ? { type: 'select', color } : { type: 'deselect' });
