@@ -101,6 +101,8 @@ export class Game {
   private matchOverFired = false;
   private lastBidCountdownMs: number | null = null;
   private lastHeartbeatAt = 0;
+  /** Whether any peer has revealed the optimal solution this round -- see revealSolution()'s doc comment. Reset wherever a fresh round begins. */
+  private revealed = false;
 
   constructor(
     container: HTMLElement,
@@ -303,11 +305,17 @@ export class Game {
 
   /**
    * Runs the true-optimal solver from the round's starting position. Needs
-   * no networking of its own even in a multiplayer match -- it's a pure
-   * function of (board, roundStartRobots, target), all of which are already
-   * identical on every peer (the board via the match-start message,
-   * roundStartRobots/target via every state snapshot), so every peer just
-   * runs it locally and gets an identical answer.
+   * no networking of its own even in a multiplayer match to *compute* the
+   * answer -- it's a pure function of (board, roundStartRobots, target), all
+   * of which are already identical on every peer (the board via the
+   * match-start message, roundStartRobots/target via every state snapshot),
+   * so every peer just runs it locally and draws it on their own board
+   * immediately, with no round-trip latency for whoever actually clicked
+   * Reveal. What *does* need to cross the network is the fact that it's been
+   * revealed at all -- see the `revealed` field and StateSnapshot's own doc
+   * comment -- so every other connected peer's board picks up the same
+   * overlay (and clears its own stale attempt trail) without needing to
+   * click Reveal themselves.
    *
    * Bounded at this.searchDepth (user-configurable, see DEFAULT_SEARCH_DEPTH)
    * rather than searching arbitrarily deep -- plain BFS blows up hard past
@@ -322,6 +330,14 @@ export class Game {
    * on request.
    */
   revealSolution(): SolveResult | null {
+    const result = this.computeAndDrawSolution();
+    this.revealed = true;
+    if (this.net.role === 'client') void this.net.room?.action.send({ type: 'revealSolution' });
+    else this.broadcastState();
+    return result;
+  }
+
+  private computeAndDrawSolution(): SolveResult | null {
     try {
       const result = solve(this.board, this.state.roundStartRobots, this.state.target, this.searchDepth);
       this.boardRenderer.showSolutionPath(this.pathsForMoves(result.moves));
@@ -372,6 +388,7 @@ export class Game {
       return;
     }
     this.boardRenderer.clearSolutionPath();
+    this.revealed = false;
     const nextTarget = pickTarget(this.targets, this.state.target);
     this.state.startNextRound(nextTarget);
     this.boardRenderer.setTarget(nextTarget);
@@ -386,6 +403,7 @@ export class Game {
     }
     this.matchOverFired = false;
     this.boardRenderer.clearSolutionPath();
+    this.revealed = false;
     const firstTarget = pickTarget(this.targets, null);
     this.state = new GameState(this.board, randomInitialRobots([firstTarget.cell]), firstTarget, playerNames);
     this.boardRenderer.setTarget(this.state.target);
@@ -414,15 +432,14 @@ export class Game {
     this.handleResize();
   }
 
-  /** Which robot (if any) occupies the board cell under a screen point -- shared by handleClick and selectRobotAtPoint. Pure: no side effects. */
+  /** Which robot (if any) a screen point should select -- shared by handleClick and selectRobotAtPoint. Pure: no side effects. */
   private robotColorAtPoint(clientX: number, clientY: number): RobotColor | null {
     const rect = this.renderer.domElement.getBoundingClientRect();
     const ndc = new Vector2(
       ((clientX - rect.left) / rect.width) * 2 - 1,
       -((clientY - rect.top) / rect.height) * 2 + 1,
     );
-    const cell = this.boardRenderer.cellAt(ndc);
-    return cell ? (ROBOT_COLORS.find((c) => sameCell(this.state.robots[c], cell)) ?? null) : null;
+    return this.boardRenderer.robotAt(ndc, this.state.robots);
   }
 
   private handleClick(event: MouseEvent): void {
@@ -507,9 +524,9 @@ export class Game {
    * the message itself, so a client can't spoof another player's slot.
    * move/select/deselect/undo/concede are further gated to "is it actually
    * this sender's turn" -- placeBid/endCountdownEarly/giveUpRound/
-   * continueToNextRound/playAgain are open to any connected player, matching
-   * the same "anyone at the shared keyboard" spirit local hot-seat play has
-   * for those actions.
+   * continueToNextRound/playAgain/revealSolution are open to any connected
+   * player, matching the same "anyone at the shared keyboard" spirit local
+   * hot-seat play has for those actions.
    */
   private handleIncomingAction(msg: ActionMsg, peerId: string): void {
     const senderIndex = this.net.playerOrder.indexOf(peerId);
@@ -569,6 +586,10 @@ export class Game {
       case 'playAgain':
         this.resetMatch(this.state.players.map((p) => p.name));
         return;
+      case 'revealSolution':
+        this.revealed = true;
+        this.broadcastState();
+        return;
     }
   }
 
@@ -588,6 +609,7 @@ export class Game {
       activeBidIndex: this.state.activeBidIndex,
       lastRoundWinnerIndex: this.state.lastRoundWinnerIndex,
       bidCountdownMs,
+      revealed: this.revealed,
     };
     void this.net.room.state.send(snapshot);
   }
@@ -599,23 +621,50 @@ export class Game {
    * (activeBid, remainingMoves, blockedByRicochetRule, isSolved, ...) and
    * every existing render path (syncRobots, pathsForMoves, emitUpdate) keeps
    * working unchanged, exactly as it does for the host's own live GameState.
+   *
+   * `players` is updated in place (mutating each existing Player object)
+   * rather than replaced with the freshly-deserialized array wholesale --
+   * main.ts's HUD only rebuilds the player rows (including each row's bid
+   * input/button) when `info.players` changes *reference*, and a client
+   * receives a fresh snapshot up to ~4x/sec during a live bid countdown (the
+   * host's heartbeat, see maybeBroadcastHeartbeat). Replacing the array on
+   * every one of those tore down and rebuilt every bid input/button under a
+   * backup bidder's own click roughly every quarter second, so a click's
+   * mousedown and mouseup could land on two different button instances and
+   * get silently dropped -- exactly the failure mode buildPlayerRows's own
+   * comment in main.ts already documents for local play, just triggered here
+   * by the network snapshot cadence instead of a per-frame rebuild. `target`
+   * gets the same treatment for the same reason (a stable reference lets
+   * main.ts skip re-drawing its canvas icon on every heartbeat), just
+   * conditioned on an actual value change instead of a field-by-field merge,
+   * since a whole new Target object is cheap and correct either way.
    */
   private applySnapshot(snapshot: StateSnapshot): void {
     const targetChanged =
       this.state.target.color !== snapshot.target.color || !sameCell(this.state.target.cell, snapshot.target.cell);
+    const revealedChanged = snapshot.revealed !== this.revealed;
     this.state.robots = cloneRobotPositions(snapshot.robots);
     this.state.roundStartRobots = cloneRobotPositions(snapshot.roundStartRobots);
     this.state.moveHistory = snapshot.moveHistory.map((m) => ({ ...m }));
     this.state.selected = snapshot.selected;
-    this.state.target = snapshot.target;
-    this.state.players = snapshot.players.map((p) => ({ ...p }));
+    if (targetChanged) this.state.target = snapshot.target;
+    if (this.state.players.length === snapshot.players.length) {
+      snapshot.players.forEach((p, i) => Object.assign(this.state.players[i], p));
+    } else {
+      this.state.players = snapshot.players.map((p) => ({ ...p }));
+    }
     this.state.phase = snapshot.phase;
     this.state.bids = snapshot.bids.map((b) => ({ ...b }));
     this.state.activeBidIndex = snapshot.activeBidIndex;
     this.state.lastRoundWinnerIndex = snapshot.lastRoundWinnerIndex;
     this.lastBidCountdownMs = snapshot.bidCountdownMs;
+    this.revealed = snapshot.revealed;
     if (targetChanged) this.boardRenderer.setTarget(this.state.target);
     this.syncRobots();
+    if (revealedChanged) {
+      if (this.revealed) this.computeAndDrawSolution();
+      else this.boardRenderer.clearSolutionPath();
+    }
   }
 
   /** Repositions robot meshes, keeps the selection ring glued to whichever robot is currently selected (a move can relocate the selected robot itself), and redraws the numbered move trail for the round's current attempt -- an empty moveHistory (a fresh bidder's turn, or giving up) just clears it. */

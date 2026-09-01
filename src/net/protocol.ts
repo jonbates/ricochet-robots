@@ -58,7 +58,13 @@ export type ActionMsg =
   | { type: 'endCountdownEarly' }
   | { type: 'giveUpRound' }
   | { type: 'continueToNextRound' }
-  | { type: 'playAgain' };
+  | { type: 'playAgain' }
+  | { type: 'revealSolution' };
+
+/** Client -> host, once, right after joining the lobby: the display name this peer typed into "Your name" before the host had a chance to assign a placeholder. */
+export interface RenameMsg {
+  name: string;
+}
 
 /**
  * Host -> everyone: the host's authoritative GameState, sent in full
@@ -75,6 +81,13 @@ export type ActionMsg =
  * origins aren't comparable across machines. A receiving client applies
  * every other field directly onto its own (otherwise-inert) GameState
  * instance and reads `bidCountdownMs` straight through to its UI.
+ *
+ * `revealed` mirrors whether any peer has clicked "Reveal Optimal Solution"
+ * this round -- solve() itself is never sent over the wire (it's a pure
+ * function of already-synced state, so every peer just runs it locally and
+ * gets an identical answer), but *whether* it's been revealed needs to be
+ * shared so every peer's board shows the same overlay, and clears its own
+ * stale attempt trail, at the same moment.
  */
 export interface StateSnapshot {
   robots: RobotPositions;
@@ -88,4 +101,5 @@ export interface StateSnapshot {
   activeBidIndex: number | null;
   lastRoundWinnerIndex: number | null;
   bidCountdownMs: number | null;
+  revealed: boolean;
 }

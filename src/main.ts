@@ -1,7 +1,7 @@
 import './style.css';
 import { DEFAULT_SEARCH_DEPTH, Game, LOCAL_NETWORK_CONTEXT, type NetworkContext, pickTarget, type UpdateInfo, WIN_SCORE } from './Game';
 import { buildBoardVariant, type BoardVariantId, randomInitialRobots, randomQuadrantAssignment, type Target } from './board/BoardLayout';
-import type { Bid, Player } from './game/GameState';
+import { BID_WINDOW_MS, type Bid, type Player } from './game/GameState';
 import type { Cell, Direction } from './board/Board';
 import { buildTargetIconCanvas } from './render/targetIcon2d';
 import type { NetworkRoom } from './net/room';
@@ -191,6 +191,11 @@ function renderRoster(): void {
     }
     lobbyRosterList.appendChild(row);
   }
+  // Only meaningful for the host (lobbyStartBtn stays hidden for a joining
+  // client, see joinRoomWithCode) -- don't allow starting a "networked"
+  // match with no one else actually connected yet.
+  lobbyStartBtn.disabled = lobbyPlayers.length < 2;
+  lobbyStartBtn.title = lobbyStartBtn.disabled ? 'Waiting for at least one other player to join...' : '';
 }
 
 function boardLabel(variantId: BoardVariantId): string {
@@ -218,7 +223,14 @@ async function hostRoom(): Promise<void> {
   lobbyPlayers = [{ peerId: newRoom.selfId, name: lobbyNameInput.value.trim() || generateSelfName(), isHost: true }];
 
   newRoom.onPeerJoin((peerId) => {
-    lobbyPlayers.push({ peerId, name: `Guest ${lobbyPlayers.length + 1}`, isHost: false });
+    // A placeholder -- the joining peer sends its own chosen name (see
+    // joinRoomWithCode) as soon as its connection to us is ready, via the
+    // `rename` handler below. Guarded against a peer that's already present
+    // because the two events race: this "someone connected" notification
+    // and the guest's own rename message can arrive in either order.
+    if (!lobbyPlayers.some((p) => p.peerId === peerId)) {
+      lobbyPlayers.push({ peerId, name: `Guest ${lobbyPlayers.length + 1}`, isHost: false });
+    }
     broadcastRoster();
     renderRoster();
   });
@@ -227,6 +239,15 @@ async function hostRoom(): Promise<void> {
     broadcastRoster();
     renderRoster();
   });
+  newRoom.rename.onMessage = (msg, ctx) => {
+    const name = msg.name.trim();
+    if (!name) return;
+    const existing = lobbyPlayers.find((p) => p.peerId === ctx.peerId);
+    if (existing) existing.name = name;
+    else lobbyPlayers.push({ peerId: ctx.peerId, name, isHost: false });
+    broadcastRoster();
+    renderRoster();
+  };
 
   lobbyRoomCodeValue.textContent = code;
   lobbyBoardSelect.hidden = false;
@@ -261,6 +282,13 @@ async function joinRoomWithCode(rawCode: string): Promise<void> {
     renderLobbyBoardReadonly();
   };
   newRoom.startMatch.onMessage = (msg) => beginMultiplayerMatch(msg);
+  // Send our own chosen name the moment the host's connection is actually
+  // ready (rather than right away, before any peer connection exists yet,
+  // which Trystero would just silently drop) -- the host has only one peer
+  // to wait for here, so this fires exactly once.
+  newRoom.onPeerJoin(() => {
+    void newRoom.rename.send({ name: lobbyNameInput.value.trim() || generateSelfName() });
+  });
 
   lobbyRoomCodeValue.textContent = code;
   lobbyBoardSelect.hidden = true;
@@ -276,6 +304,7 @@ async function joinRoomWithCode(rawCode: string): Promise<void> {
 /** Host-only: resolves the three Math.random() call sites BoardLayout/Game would otherwise call independently on every peer (quadrant assignment, initial robot positions, first target), sends the result to everyone, and begins the match locally. */
 function startMultiplayerMatch(): void {
   if (!room || myRole !== 'host') return;
+  if (lobbyPlayers.length < 2) return; // the Start button is disabled for this same reason -- this is defense in depth, not the primary gate
   const quadrantAssignment = randomQuadrantAssignment();
   const variant = buildBoardVariant(lobbyVariantId, quadrantAssignment);
   const firstTarget = pickTarget(variant.targets, null);
@@ -469,6 +498,17 @@ function renderTarget(info: UpdateInfo): void {
   }
 }
 
+/** Linearly interpolates the timer's border from green (full time left) to red (about to expire), so the countdown reads as urgent without anyone having to watch the number itself. */
+function timerBorderColor(progress: number): string {
+  const clamped = Math.min(1, Math.max(0, progress));
+  const from = { r: 34, g: 197, b: 94 }; // Tailwind green-500
+  const to = { r: 239, g: 68, b: 68 }; // Tailwind red-500
+  const r = Math.round(from.r + (to.r - from.r) * clamped);
+  const g = Math.round(from.g + (to.g - from.g) * clamped);
+  const b = Math.round(from.b + (to.b - from.b) * clamped);
+  return `rgb(${r} ${g} ${b})`;
+}
+
 function renderTimer(info: UpdateInfo): void {
   const show = info.phase === 'bidding' && info.bidCountdownMs !== null;
   hudTimer.hidden = !show;
@@ -477,22 +517,21 @@ function renderTimer(info: UpdateInfo): void {
     const minutes = Math.floor(totalSeconds / 60);
     const seconds = totalSeconds % 60;
     hudTimerText.textContent = `${minutes}:${String(seconds).padStart(2, '0')}`;
+    hudTimer.style.borderColor = timerBorderColor(1 - info.bidCountdownMs / BID_WINDOW_MS);
   }
 }
 
-function renderAttempting(info: UpdateInfo): void {
+// See handleUpdate's own `myTurn` doc comment -- everyone but the peer
+// occupying the active bidder's slot has arrow keys/clicks that are inert
+// (Game.canActNow), so this says so and visibly disables Undo/Concede rather
+// than leaving them clickable but silently no-op. Local hot-seat play
+// (mySlot === null) keeps the original "click a robot..." instructions,
+// since anyone at the shared keyboard can act whenever it's the turn.
+function renderAttempting(info: UpdateInfo, myTurn: boolean): void {
   attemptBanner.textContent = `${info.activePlayerName} is attempting`;
   attemptMovesRemaining.textContent = `Moves remaining: ${info.remainingMoves}`;
   ricochetHint.hidden = !info.blockedByRicochetRule;
   hudAttemptBid.textContent = `Bid ${info.activeBidMoves} · ${info.remainingMoves} left`;
-
-  // In a networked match, only the peer occupying the active bidder's slot
-  // can actually move -- everyone else's arrow keys/clicks are inert (see
-  // Game.canActNow), so say so and visibly disable Undo/Concede rather than
-  // leaving them clickable but silently no-op. Local hot-seat play
-  // (mySlot === null) keeps the original "click a robot..." instructions,
-  // since anyone at the shared keyboard can act whenever it's the turn.
-  const myTurn = info.mySlot === null || info.mySlot === info.activeBidPlayerIndex;
   attemptInstructions.textContent = myTurn
     ? 'Click a robot to select it · Arrow keys to slide it · Z to undo'
     : `Waiting for ${info.activePlayerName} to move...`;
@@ -512,13 +551,20 @@ function renderResolved(info: UpdateInfo): void {
 }
 
 function handleUpdate(info: UpdateInfo): void {
+  // In a networked match, only the peer occupying the active bidder's slot
+  // can actually move (see Game.canActNow) -- showing the D-pad to everyone
+  // else invited taps that would just silently no-op. Local hot-seat play
+  // (mySlot === null) keeps it visible for whoever's turn it is, since
+  // anyone at the shared keyboard/touchscreen can act.
+  const myTurn = info.mySlot === null || info.mySlot === info.activeBidPlayerIndex;
+
   // Phase-gated visibility first, before anything that renders actual
   // content (player rows, the target icon, the timer) -- those are
   // cosmetic and shouldn't be able to leave critical move-control UI (the
   // D-pad, the attempting panel) stuck in a stale hidden/shown state just
   // because something later in this function throws.
   hudAttempting.hidden = info.phase !== 'attempting';
-  mobileDpad.hidden = info.phase !== 'attempting';
+  mobileDpad.hidden = info.phase !== 'attempting' || !myTurn;
   hudAttemptStatus.hidden = info.phase !== 'attempting';
   hudGiveUp.hidden = info.phase === 'resolved';
   roundResultPanel.hidden = info.phase !== 'resolved';
@@ -526,7 +572,7 @@ function handleUpdate(info: UpdateInfo): void {
   renderPlayers(info);
   renderTarget(info);
   renderTimer(info);
-  if (info.phase === 'attempting') renderAttempting(info);
+  if (info.phase === 'attempting') renderAttempting(info, myTurn);
 
   if (info.phase === 'resolved' && lastPhase !== 'resolved') {
     // Populate once on entry, not every frame, and reset the reveal state

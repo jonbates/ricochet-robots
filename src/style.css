@@ -313,8 +313,12 @@ body {
   @apply w-full mt-3;
 }
 
+/* Thicker than the other .hud-panel borders, and its color is driven by JS
+   (renderTimer's timerBorderColor) transitioning from green to red as the
+   bid countdown runs out -- deliberately more visually urgent than the rest
+   of the HUD, since this is the one panel with a real deadline attached. */
 #hud-timer {
-  @apply flex items-center gap-3;
+  @apply flex items-center gap-3 border-4;
 }
 
 /* The ID selector above sets `display: flex`, which otherwise beats the

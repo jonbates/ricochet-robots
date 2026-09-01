@@ -1,5 +1,5 @@
 import { joinRoom, selfId } from 'trystero';
-import type { ActionMsg, LobbyRosterMsg, StartMatchMsg, StateSnapshot } from './protocol';
+import type { ActionMsg, LobbyRosterMsg, RenameMsg, StartMatchMsg, StateSnapshot } from './protocol';
 
 // Unique per app -- Trystero namespaces every room under this, so this app's
 // rooms never collide with another Trystero app reusing the same room code
@@ -38,6 +38,7 @@ export class NetworkRoom {
   readonly startMatch;
   readonly action;
   readonly state;
+  readonly rename;
 
   constructor(roomId: string) {
     this.room = joinRoom({ appId: APP_ID }, roomId);
@@ -45,6 +46,7 @@ export class NetworkRoom {
     this.startMatch = typedAction<StartMatchMsg>(this.room, 'start');
     this.action = typedAction<ActionMsg>(this.room, 'action');
     this.state = typedAction<StateSnapshot>(this.room, 'state');
+    this.rename = typedAction<RenameMsg>(this.room, 'rename');
   }
 
   onPeerJoin(cb: (peerId: string) => void): void {

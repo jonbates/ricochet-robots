@@ -23,7 +23,7 @@ export interface Bid {
 
 export type RoundPhase = 'bidding' | 'attempting' | 'resolved';
 
-const BID_WINDOW_MS = 60_000;
+export const BID_WINDOW_MS = 60_000;
 
 /**
  * Robot positions, the bidding/attempting/resolved round state machine, and

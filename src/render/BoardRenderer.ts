@@ -55,6 +55,7 @@ const WALL_THICKNESS = 0.08;
 const DEFLECTOR_LENGTH = 1.1;
 const DEFLECTOR_THICKNESS = 0.16;
 const DEFLECTOR_HEIGHT = 0.08;
+const ROBOT_CLICK_RADIUS = 0.75; // world units (a cell is 1x1) -- see robotAt()
 
 // col grows toward +x (east), row grows toward +z (south). A '\' diagonal
 // runs from the cell's NW corner to its SE corner -- i.e. along the
@@ -679,26 +680,42 @@ export class BoardRenderer {
     this.moveTrailGroup = null;
   }
 
-  /**
-   * Which board cell (if any) a click NDC coordinate falls on -- intersects
-   * the camera ray against the tile plane and rounds to the nearest cell,
-   * rather than raycasting against the robot meshes themselves. A robot's
-   * own circular mesh (ROBOT_RADIUS 0.32) covers well under half of its
-   * 1x1 cell, so hit-testing against the mesh directly meant a tap had to
-   * land inside that small circle to register -- this way, tapping anywhere
-   * in the cell a robot occupies selects it, matching the actual clickable
-   * area a player would expect on a touch screen. Returns null for a click
-   * off the board entirely (outside the BOARD_SIZE grid).
-   */
-  cellAt(ndc: Vector2): Cell | null {
+  /** Intersects the camera ray for a click NDC coordinate against the tile plane, returning the board-space (x,z) world point it lands on, or null if the click misses the board's plane entirely. Shared by robotAt() below. */
+  private raycastToBoardPoint(ndc: Vector2): { x: number; z: number } | null {
     this.pickRaycaster.setFromCamera(ndc, this.camera);
     const point = new Vector3();
     if (!this.pickRaycaster.ray.intersectPlane(this.pickPlane, point)) return null;
-    const half = (BOARD_SIZE - 1) / 2;
-    const col = Math.round(point.x + half);
-    const row = Math.round(point.z + half);
-    if (col < 0 || col >= BOARD_SIZE || row < 0 || row >= BOARD_SIZE) return null;
-    return { col, row };
+    return { x: point.x, z: point.z };
+  }
+
+  /**
+   * Which robot (if any) a click NDC coordinate should select -- the nearest
+   * robot whose cell center is within ROBOT_CLICK_RADIUS world units of the
+   * click, rather than requiring the click to land inside that robot's own
+   * 1x1 cell. A plain "which cell was clicked" test already covers the whole
+   * square a robot occupies, but a tap landing just past that square's edge
+   * (easy to do on a touch screen, especially reaching toward a robot near
+   * the edge of the D-pad) would otherwise miss it entirely. 0.75 is
+   * generous enough to forgive that while staying short of 1.0 (the distance
+   * to an adjacent cell's own center), so a click still can't reach past a
+   * robot on an intervening cell to grab one two cells away. Returns null
+   * for a click that misses the board's plane, or lands outside every
+   * robot's radius.
+   */
+  robotAt(ndc: Vector2, robots: RobotPositions): RobotColor | null {
+    const point = this.raycastToBoardPoint(ndc);
+    if (!point) return null;
+    let closest: RobotColor | null = null;
+    let closestDist = ROBOT_CLICK_RADIUS;
+    for (const color of ROBOT_COLORS) {
+      const { x, z } = cellToWorld(robots[color]);
+      const dist = Math.hypot(point.x - x, point.z - z);
+      if (dist <= closestDist) {
+        closest = color;
+        closestDist = dist;
+      }
+    }
+    return closest;
   }
 
   resize(width: number, height: number): void {
