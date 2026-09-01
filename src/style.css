@@ -124,11 +124,34 @@ body {
 }
 
 .dpad-btn {
-  @apply absolute w-11 h-11 flex items-center justify-center rounded-full bg-[#3a4550] border border-[rgba(255,255,255,0.3)] text-white text-lg leading-none shadow-[0_2px_6px_rgba(0,0,0,0.4)];
+  @apply absolute w-11 h-11 flex items-center justify-center rounded-full bg-[#3a4550] border border-[rgba(255,255,255,0.3)] shadow-[0_2px_6px_rgba(0,0,0,0.4)];
 }
 
 .dpad-btn:active {
   @apply bg-[#2a333c];
+}
+
+/* A solid CSS-drawn triangle (border trick), not a Unicode glyph -- some
+   platforms render arrow/triangle characters through an emoji-style font
+   with their own baked-in colors (white outline, orange/amber fill) that
+   ignores `color`, which is exactly the two-tone look the button color was
+   supposed to replace. A drawn shape has no font to second-guess, so it's
+   reliably solid white on every device. Points up by default; each
+   direction rotates the same shape rather than needing four separate ones. */
+.dpad-arrow {
+  @apply block w-0 h-0 border-l-[7px] border-r-[7px] border-b-[11px] border-l-transparent border-r-transparent border-b-white;
+}
+
+.dpad-down .dpad-arrow {
+  @apply rotate-180;
+}
+
+.dpad-left .dpad-arrow {
+  @apply -rotate-90;
+}
+
+.dpad-right .dpad-arrow {
+  @apply rotate-90;
 }
 
 .dpad-up {
