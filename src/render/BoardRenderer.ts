@@ -40,6 +40,7 @@ const ICON_Y = 0.015;
 const ICON_RING_INNER = 0.3;
 const ICON_RING_OUTER = 0.38;
 const ICON_RING_Y_OFFSET = -0.003; // just under the icon shape, within the same group, to avoid z-fighting
+const ICON_CIRCLE_Y_OFFSET = -0.0015; // between the ring and the shape -- see buildIconWithRing
 const VAULT_ICON_Y = 0.13; // sits on top of the vault box (height 0.12)
 const SOLUTION_PATH_Y = 0.09;
 const SOLUTION_DASH_LENGTH = 0.16;
@@ -476,7 +477,15 @@ export class BoardRenderer {
     return mesh;
   }
 
-  /** An icon shape plus a ring in that same target color drawn around it -- shapes alone (especially the star vs. the round robots, or the swirl vs. a busy board) can be hard to tell apart at a glance, so the surrounding color ring gives an immediate "which robot" cue independent of the inner shape. */
+  /**
+   * An icon shape sitting on a white circle, itself ringed in that target's
+   * color -- shapes alone (especially the star vs. the round robots, or the
+   * swirl vs. a busy board) can be hard to tell apart at a glance, so the
+   * surrounding color ring gives an immediate "which robot" cue independent
+   * of the inner shape, and the white circle behind the shape guarantees
+   * contrast against it regardless of how the shape's own color happens to
+   * read against a plain tile (a yellow shape on a light tile, say).
+   */
   private buildIconWithRing(target: Target): THREE.Group {
     const group = new THREE.Group();
     const ringGeometry = new THREE.RingGeometry(ICON_RING_INNER, ICON_RING_OUTER, 32);
@@ -485,6 +494,14 @@ export class BoardRenderer {
     ring.rotation.x = -Math.PI / 2;
     ring.position.y = ICON_RING_Y_OFFSET;
     group.add(ring);
+
+    const circleGeometry = new THREE.CircleGeometry(ICON_RING_INNER, 32);
+    const circleMaterial = new THREE.MeshBasicMaterial({ color: 0xffffff, side: THREE.DoubleSide });
+    const circle = new THREE.Mesh(circleGeometry, circleMaterial);
+    circle.rotation.x = -Math.PI / 2;
+    circle.position.y = ICON_CIRCLE_Y_OFFSET;
+    group.add(circle);
+
     group.add(this.buildIconMesh(target));
     return group;
   }
