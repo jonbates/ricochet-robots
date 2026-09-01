@@ -401,16 +401,21 @@ export class Game {
     this.container.parentElement?.style.setProperty('--board-width', `${boardWidth}px`);
   }
 
+  /** Which robot (if any) occupies the board cell under a screen point -- shared by handleClick and selectRobotAtPoint. Pure: no side effects. */
+  private robotColorAtPoint(clientX: number, clientY: number): RobotColor | null {
+    const rect = this.renderer.domElement.getBoundingClientRect();
+    const ndc = new THREE.Vector2(
+      ((clientX - rect.left) / rect.width) * 2 - 1,
+      -((clientY - rect.top) / rect.height) * 2 + 1,
+    );
+    const cell = this.boardRenderer.cellAt(ndc);
+    return cell ? (ROBOT_COLORS.find((c) => sameCell(this.state.robots[c], cell)) ?? null) : null;
+  }
+
   private handleClick(event: MouseEvent): void {
     if (this.state.phase !== 'attempting') return;
     if (!this.canActNow()) return;
-    const rect = this.renderer.domElement.getBoundingClientRect();
-    const ndc = new THREE.Vector2(
-      ((event.clientX - rect.left) / rect.width) * 2 - 1,
-      -((event.clientY - rect.top) / rect.height) * 2 + 1,
-    );
-    const cell = this.boardRenderer.cellAt(ndc);
-    const color = cell ? (ROBOT_COLORS.find((c) => sameCell(this.state.robots[c], cell)) ?? null) : null;
+    const color = this.robotColorAtPoint(event.clientX, event.clientY);
 
     if (this.net.role === 'client') {
       void this.net.room?.action.send(color ? { type: 'select', color } : { type: 'deselect' });
@@ -420,6 +425,29 @@ export class Game {
     else this.state.deselect();
     this.boardRenderer.setSelected(this.state.selected);
     this.broadcastState();
+  }
+
+  /**
+   * Selects whatever robot occupies the board cell under a screen point,
+   * exactly as a direct click on the board would -- used by the mobile
+   * D-pad (see main.ts) to "click through" itself onto a robot sitting
+   * visibly underneath its translucent background, rather than always
+   * treating a tap there as a directional move. Returns false with no side
+   * effect at all (notably, it does *not* deselect) when there's no robot
+   * at that point, so the D-pad can fall back to its own move in that case.
+   */
+  selectRobotAtPoint(clientX: number, clientY: number): boolean {
+    if (this.state.phase !== 'attempting' || !this.canActNow()) return false;
+    const color = this.robotColorAtPoint(clientX, clientY);
+    if (!color) return false;
+    if (this.net.role === 'client') {
+      void this.net.room?.action.send({ type: 'select', color });
+    } else {
+      this.state.select(color);
+      this.boardRenderer.setSelected(this.state.selected);
+      this.broadcastState();
+    }
+    return true;
   }
 
   private handleKeydown(event: KeyboardEvent): void {

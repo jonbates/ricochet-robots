@@ -569,7 +569,15 @@ undoBtn.addEventListener('click', () => game?.undo());
 concedeBtn.addEventListener('click', () => game?.concede());
 for (const btn of dpadButtons) {
   const direction = btn.dataset.direction as Direction;
-  btn.addEventListener('click', () => game?.move(direction));
+  btn.addEventListener('click', (e) => {
+    // The D-pad is a translucent overlay -- a robot can visibly sit right
+    // underneath it. If this tap landed on one, select it (as a direct
+    // board tap would) instead of always treating a tap here as a move in
+    // this button's direction.
+    const clickedThroughToRobot = game?.selectRobotAtPoint(e.clientX, e.clientY) ?? false;
+    if (!clickedThroughToRobot) game?.move(direction);
+    e.stopPropagation();
+  });
 }
 
 // Lets a player start bidding by just pressing a number key, without first
