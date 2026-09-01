@@ -4,7 +4,7 @@ import { buildBoardVariant, type BoardVariantId, randomInitialRobots, randomQuad
 import type { Bid, Player } from './game/GameState';
 import type { Cell, Direction } from './board/Board';
 import { buildTargetIconCanvas } from './render/targetIcon2d';
-import { NetworkRoom } from './net/room';
+import type { NetworkRoom } from './net/room';
 import { generateRoomCode, normalizeCodeInput, toRoomId } from './net/roomCode';
 import type { LobbyPlayer, StartMatchMsg } from './net/protocol';
 
@@ -207,9 +207,10 @@ function renderLobbyBoardSelected(): void {
   }
 }
 
-function hostRoom(): void {
+async function hostRoom(): Promise<void> {
   leaveRoom();
   const code = generateRoomCode();
+  const { NetworkRoom } = await import('./net/room');
   const newRoom = new NetworkRoom(toRoomId(code));
   room = newRoom;
   myRole = 'host';
@@ -239,7 +240,7 @@ function hostRoom(): void {
   showLobbySubView('room');
 }
 
-function joinRoomWithCode(rawCode: string): void {
+async function joinRoomWithCode(rawCode: string): Promise<void> {
   const code = normalizeCodeInput(rawCode);
   if (code.length !== 5) {
     lobbyError.textContent = 'Enter the 5-character room code.';
@@ -247,6 +248,7 @@ function joinRoomWithCode(rawCode: string): void {
   }
   lobbyError.textContent = '';
   leaveRoom();
+  const { NetworkRoom } = await import('./net/room');
   const newRoom = new NetworkRoom(toRoomId(code));
   room = newRoom;
   myRole = 'client';

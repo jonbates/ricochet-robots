@@ -1,4 +1,34 @@
-import * as THREE from 'three';
+import {
+  AmbientLight,
+  BoxGeometry,
+  BufferAttribute,
+  BufferGeometry,
+  CanvasTexture,
+  CircleGeometry,
+  Color,
+  CylinderGeometry,
+  DirectionalLight,
+  DoubleSide,
+  Group,
+  LineBasicMaterial,
+  LineSegments,
+  type Material,
+  Mesh,
+  MeshBasicMaterial,
+  MeshStandardMaterial,
+  Object3D,
+  OrthographicCamera,
+  Plane,
+  PlaneGeometry,
+  Raycaster,
+  RingGeometry,
+  Scene,
+  Shape,
+  ShapeGeometry,
+  type Texture,
+  Vector2,
+  Vector3,
+} from 'three';
 import { BOARD_SIZE, type Board, type Cell, ROBOT_COLORS, type RobotColor } from '../board/Board';
 import { VAULT_CELLS } from '../board/BoardLayout';
 import type { RobotPositions } from '../game/GameState';
@@ -54,7 +84,7 @@ const TRAIL_LABEL_RADIUS = 0.32;
 const TRAIL_LABEL_Y = 0.095; // just above the dash/arrow layer, so the number badge always draws on top
 
 /** A flat, unlit shape geometry for a target icon -- square/diamond/triangle come "for free" out of a low-segment CircleGeometry with a chosen starting angle; the star and the warp target's swirl need real outlines. Deliberately no smooth-circle icon shape -- that outline is reserved for robots (see buildRobots), so a target is never visually confused with one. */
-function buildIconGeometry(shape: TargetShape): THREE.BufferGeometry {
+function buildIconGeometry(shape: TargetShape): BufferGeometry {
   switch (shape) {
     case 'star':
       return buildStarGeometry(0.3, 0.13, 5);
@@ -62,19 +92,19 @@ function buildIconGeometry(shape: TargetShape): THREE.BufferGeometry {
       // 4-gon vertices land on the axes by default (a diamond); starting the
       // first vertex at 45 degrees instead lands them on the diagonals, i.e.
       // an axis-aligned square.
-      return new THREE.CircleGeometry(0.24, 4, Math.PI / 4);
+      return new CircleGeometry(0.24, 4, Math.PI / 4);
     case 'diamond':
-      return new THREE.CircleGeometry(0.28, 4);
+      return new CircleGeometry(0.28, 4);
     case 'triangle':
-      return new THREE.CircleGeometry(0.3, 3);
+      return new CircleGeometry(0.3, 3);
     case 'swirl':
       return buildSwirlGeometry(0.32, 1.6, 0.16, 40);
   }
 }
 
 /** A full five-pointed star outline, traced as one 10-vertex polygon alternating outer points and inner concave vertices. */
-function buildStarGeometry(outerRadius: number, innerRadius: number, points: number): THREE.ShapeGeometry {
-  const shape = new THREE.Shape();
+function buildStarGeometry(outerRadius: number, innerRadius: number, points: number): ShapeGeometry {
+  const shape = new Shape();
   for (let i = 0; i < points * 2; i++) {
     const r = i % 2 === 0 ? outerRadius : innerRadius;
     const angle = (i / (points * 2)) * Math.PI * 2 - Math.PI / 2;
@@ -84,7 +114,7 @@ function buildStarGeometry(outerRadius: number, innerRadius: number, points: num
     else shape.lineTo(x, y);
   }
   shape.closePath();
-  return new THREE.ShapeGeometry(shape);
+  return new ShapeGeometry(shape);
 }
 
 /**
@@ -100,7 +130,7 @@ function buildStarGeometry(outerRadius: number, innerRadius: number, points: num
  * used to lay a second arm opposite the first (see buildIconMesh) without
  * the two coinciding.
  */
-function buildSwirlGeometry(maxRadius: number, turns: number, strokeWidth: number, segments: number, phaseOffset = 0): THREE.ShapeGeometry {
+function buildSwirlGeometry(maxRadius: number, turns: number, strokeWidth: number, segments: number, phaseOffset = 0): ShapeGeometry {
   const outer: { x: number; y: number }[] = [];
   const inner: { x: number; y: number }[] = [];
   for (let i = 0; i <= segments; i++) {
@@ -115,19 +145,19 @@ function buildSwirlGeometry(maxRadius: number, turns: number, strokeWidth: numbe
     outer.push({ x: cx + nx * halfWidth, y: cy + ny * halfWidth });
     inner.push({ x: cx - nx * halfWidth, y: cy - ny * halfWidth });
   }
-  const shape = new THREE.Shape();
+  const shape = new Shape();
   shape.moveTo(outer[0].x, outer[0].y);
   for (const p of outer.slice(1)) shape.lineTo(p.x, p.y);
   for (const p of inner.slice().reverse()) shape.lineTo(p.x, p.y);
   shape.closePath();
-  return new THREE.ShapeGeometry(shape);
+  return new ShapeGeometry(shape);
 }
 
-function disposeObject3D(obj: THREE.Object3D): void {
+function disposeObject3D(obj: Object3D): void {
   obj.traverse((child) => {
-    if (child instanceof THREE.Mesh) {
+    if (child instanceof Mesh) {
       child.geometry.dispose();
-      const material = child.material as THREE.Material & { map?: THREE.Texture | null };
+      const material = child.material as Material & { map?: Texture | null };
       material.map?.dispose(); // numbered move-trail labels carry a canvas texture that needs its own disposal
       material.dispose();
     }
@@ -135,7 +165,7 @@ function disposeObject3D(obj: THREE.Object3D): void {
 }
 
 /** A small canvas-drawn "(n)" badge -- solid circle in the move's own color, white ring, white number -- as a texture, since there's no 3D font loaded for real text geometry. Cheap enough to regenerate on every trail redraw (at most a couple dozen small canvases for a long attempt). */
-function buildNumberLabelTexture(n: number, hexColor: number): THREE.CanvasTexture {
+function buildNumberLabelTexture(n: number, hexColor: number): CanvasTexture {
   const size = 128;
   const canvas = document.createElement('canvas');
   canvas.width = size;
@@ -153,13 +183,13 @@ function buildNumberLabelTexture(n: number, hexColor: number): THREE.CanvasTextu
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
   ctx.fillText(String(n), size / 2, size / 2 + 4);
-  return new THREE.CanvasTexture(canvas);
+  return new CanvasTexture(canvas);
 }
 
-function buildNumberLabel(n: number, hexColor: number): THREE.Mesh {
-  const geometry = new THREE.CircleGeometry(TRAIL_LABEL_RADIUS, 24);
-  const material = new THREE.MeshBasicMaterial({ map: buildNumberLabelTexture(n, hexColor), transparent: true });
-  const mesh = new THREE.Mesh(geometry, material);
+function buildNumberLabel(n: number, hexColor: number): Mesh {
+  const geometry = new CircleGeometry(TRAIL_LABEL_RADIUS, 24);
+  const material = new MeshBasicMaterial({ map: buildNumberLabelTexture(n, hexColor), transparent: true });
+  const mesh = new Mesh(geometry, material);
   mesh.rotation.x = -Math.PI / 2;
   return mesh;
 }
@@ -210,21 +240,21 @@ function directionAngle(dc: number, dr: number): number {
 }
 
 /** A thin flat rectangle with vertices authored directly in the XZ plane (y=0 throughout) rather than the default XY -- so aiming it only ever needs a single rotation.y, with no rotation.x to first lay it flat and no risk of getting the two rotations' combined order wrong. Long axis along local +X, matching directionAngle(). */
-function buildFlatRectGeometry(length: number, width: number): THREE.BufferGeometry {
+function buildFlatRectGeometry(length: number, width: number): BufferGeometry {
   const hl = length / 2;
   const hw = width / 2;
   const positions = new Float32Array([-hl, 0, -hw, hl, 0, -hw, hl, 0, hw, -hl, 0, -hw, hl, 0, hw, -hl, 0, hw]);
-  const geometry = new THREE.BufferGeometry();
-  geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+  const geometry = new BufferGeometry();
+  geometry.setAttribute('position', new BufferAttribute(positions, 3));
   return geometry;
 }
 
 /** A flat arrowhead triangle, apex at local +X -- see buildFlatRectGeometry for why it's authored directly in the XZ plane. */
-function buildFlatArrowGeometry(length: number, width: number): THREE.BufferGeometry {
+function buildFlatArrowGeometry(length: number, width: number): BufferGeometry {
   const hw = width / 2;
   const positions = new Float32Array([0, 0, hw, 0, 0, -hw, length, 0, 0]);
-  const geometry = new THREE.BufferGeometry();
-  geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+  const geometry = new BufferGeometry();
+  geometry.setAttribute('position', new BufferAttribute(positions, 3));
   return geometry;
 }
 
@@ -235,26 +265,26 @@ function buildFlatArrowGeometry(length: number, width: number): THREE.BufferGeom
  * GameState changes rather than rebuilt.
  */
 export class BoardRenderer {
-  readonly scene = new THREE.Scene();
-  readonly camera: THREE.OrthographicCamera;
+  readonly scene = new Scene();
+  readonly camera: OrthographicCamera;
 
   private readonly viewSize = BOARD_SIZE + 3; // grid extent plus a margin
 
   /** What fraction of the container's height the board itself occupies on screen when the container is at least as wide as it is tall (aspect >= 1) -- the camera's vertical extent is exactly `viewSize` in that case, so this ratio (times the container's pixel height) is the board's rendered pixel width too, since applyAspect keeps a uniform (non-stretching) scale. Below aspect 1 (a narrow, stacked mobile container) the board's width is the *container's* full width instead -- see Game.ts's handleResize, which picks between the two. */
   readonly boardToViewRatio = BOARD_SIZE / this.viewSize;
-  private readonly robotMeshes: Record<RobotColor, THREE.Mesh>;
-  private readonly pickRaycaster = new THREE.Raycaster();
-  private readonly pickPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -TILE_TOP); // the tile surface, for cellAt()
-  private readonly activeTargetHighlight: THREE.Mesh;
-  private readonly selectionHighlight: THREE.Mesh;
-  private readonly vaultIconGroup: THREE.Group;
-  private vaultIconMesh: THREE.Group | null = null;
-  private solutionPathGroup: THREE.Group | null = null;
-  private moveTrailGroup: THREE.Group | null = null;
+  private readonly robotMeshes: Record<RobotColor, Mesh>;
+  private readonly pickRaycaster = new Raycaster();
+  private readonly pickPlane = new Plane(new Vector3(0, 1, 0), -TILE_TOP); // the tile surface, for cellAt()
+  private readonly activeTargetHighlight: Mesh;
+  private readonly selectionHighlight: Mesh;
+  private readonly vaultIconGroup: Group;
+  private vaultIconMesh: Group | null = null;
+  private solutionPathGroup: Group | null = null;
+  private moveTrailGroup: Group | null = null;
 
   constructor(board: Board, targets: readonly Target[]) {
-    this.scene.background = new THREE.Color(0x0a1a2a);
-    this.camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 100);
+    this.scene.background = new Color(0x0a1a2a);
+    this.camera = new OrthographicCamera(-1, 1, 1, -1, 0.1, 100);
     this.camera.position.set(0, 30, 0);
     // Looking straight down means the default up vector (0,1,0) is parallel
     // to the view direction, which leaves lookAt's orientation undefined --
@@ -277,27 +307,27 @@ export class BoardRenderer {
     this.activeTargetHighlight = this.buildRing(0.36, 0.44, 0xffffff, 0.02);
     this.selectionHighlight = this.buildRing(0.38, 0.48, 0xffffff, 0.03);
     this.selectionHighlight.visible = false;
-    this.vaultIconGroup = new THREE.Group();
+    this.vaultIconGroup = new Group();
     const { x: vaultX, z: vaultZ } = this.vaultCenter();
     this.vaultIconGroup.position.set(vaultX, 0, vaultZ);
     this.scene.add(this.vaultIconGroup);
   }
 
   private buildLights(): void {
-    this.scene.add(new THREE.AmbientLight(0xffffff, 0.75));
-    const sun = new THREE.DirectionalLight(0xffffff, 0.6);
+    this.scene.add(new AmbientLight(0xffffff, 0.75));
+    const sun = new DirectionalLight(0xffffff, 0.6);
     sun.position.set(6, 12, 4);
     this.scene.add(sun);
   }
 
   private buildTiles(): void {
-    const group = new THREE.Group();
+    const group = new Group();
     for (let row = 0; row < BOARD_SIZE; row++) {
       for (let col = 0; col < BOARD_SIZE; col++) {
-        const geometry = new THREE.PlaneGeometry(1, 1);
+        const geometry = new PlaneGeometry(1, 1);
         const color = (col + row) % 2 === 0 ? TILE_LIGHT : TILE_DARK;
-        const material = new THREE.MeshStandardMaterial({ color, roughness: 0.9 });
-        const mesh = new THREE.Mesh(geometry, material);
+        const material = new MeshStandardMaterial({ color, roughness: 0.9 });
+        const mesh = new Mesh(geometry, material);
         mesh.rotation.x = -Math.PI / 2;
         const { x, z } = cellToWorld({ col, row });
         mesh.position.set(x, TILE_TOP, z);
@@ -309,15 +339,15 @@ export class BoardRenderer {
 
   private buildGridLines(): void {
     const half = BOARD_SIZE / 2;
-    const points: THREE.Vector3[] = [];
+    const points: Vector3[] = [];
     for (let i = 0; i <= BOARD_SIZE; i++) {
       const offset = i - half;
-      points.push(new THREE.Vector3(offset, 0.005, -half), new THREE.Vector3(offset, 0.005, half));
-      points.push(new THREE.Vector3(-half, 0.005, offset), new THREE.Vector3(half, 0.005, offset));
+      points.push(new Vector3(offset, 0.005, -half), new Vector3(offset, 0.005, half));
+      points.push(new Vector3(-half, 0.005, offset), new Vector3(half, 0.005, offset));
     }
-    const geometry = new THREE.BufferGeometry().setFromPoints(points);
-    const material = new THREE.LineBasicMaterial({ color: 0xb9c4cf, transparent: true, opacity: 0.6 });
-    this.scene.add(new THREE.LineSegments(geometry, material));
+    const geometry = new BufferGeometry().setFromPoints(points);
+    const material = new LineBasicMaterial({ color: 0xb9c4cf, transparent: true, opacity: 0.6 });
+    this.scene.add(new LineSegments(geometry, material));
   }
 
   private vaultCenter(): { x: number; z: number } {
@@ -335,30 +365,30 @@ export class BoardRenderer {
     const depth = Math.max(...rows) - Math.min(...rows) + 1;
     const { x, z } = this.vaultCenter();
 
-    const geometry = new THREE.BoxGeometry(width, 0.12, depth);
-    const material = new THREE.MeshStandardMaterial({ color: VAULT_COLOR, roughness: 0.7 });
-    const mesh = new THREE.Mesh(geometry, material);
+    const geometry = new BoxGeometry(width, 0.12, depth);
+    const material = new MeshStandardMaterial({ color: VAULT_COLOR, roughness: 0.7 });
+    const mesh = new Mesh(geometry, material);
     mesh.position.set(x, 0.06, z);
     this.scene.add(mesh);
   }
 
   /** Interior walls only -- the outer boundary gets its own frame in buildBoundaryFrame(). Each wall is authored symmetrically on both cells it separates, so only N/W bits are drawn to avoid drawing the same physical segment twice. */
   private buildWalls(board: Board): void {
-    const group = new THREE.Group();
-    const geometryNS = new THREE.BoxGeometry(1 + WALL_THICKNESS, WALL_HEIGHT, WALL_THICKNESS);
-    const geometryEW = new THREE.BoxGeometry(WALL_THICKNESS, WALL_HEIGHT, 1 + WALL_THICKNESS);
-    const material = new THREE.MeshStandardMaterial({ color: WALL_COLOR, roughness: 0.6 });
+    const group = new Group();
+    const geometryNS = new BoxGeometry(1 + WALL_THICKNESS, WALL_HEIGHT, WALL_THICKNESS);
+    const geometryEW = new BoxGeometry(WALL_THICKNESS, WALL_HEIGHT, 1 + WALL_THICKNESS);
+    const material = new MeshStandardMaterial({ color: WALL_COLOR, roughness: 0.6 });
 
     for (let row = 0; row < BOARD_SIZE; row++) {
       for (let col = 0; col < BOARD_SIZE; col++) {
         const { x, z } = cellToWorld({ col, row });
         if (board.hasWall(col, row, 'N')) {
-          const mesh = new THREE.Mesh(geometryNS, material);
+          const mesh = new Mesh(geometryNS, material);
           mesh.position.set(x, WALL_HEIGHT / 2, z - 0.5);
           group.add(mesh);
         }
         if (board.hasWall(col, row, 'W')) {
-          const mesh = new THREE.Mesh(geometryEW, material);
+          const mesh = new Mesh(geometryEW, material);
           mesh.position.set(x - 0.5, WALL_HEIGHT / 2, z);
           group.add(mesh);
         }
@@ -369,26 +399,26 @@ export class BoardRenderer {
 
   private buildBoundaryFrame(): void {
     const half = BOARD_SIZE / 2;
-    const material = new THREE.MeshStandardMaterial({ color: WALL_COLOR, roughness: 0.6 });
-    const long = new THREE.BoxGeometry(BOARD_SIZE + WALL_THICKNESS, WALL_HEIGHT, WALL_THICKNESS);
-    const north = new THREE.Mesh(long, material);
+    const material = new MeshStandardMaterial({ color: WALL_COLOR, roughness: 0.6 });
+    const long = new BoxGeometry(BOARD_SIZE + WALL_THICKNESS, WALL_HEIGHT, WALL_THICKNESS);
+    const north = new Mesh(long, material);
     north.position.set(0, WALL_HEIGHT / 2, -half);
-    const south = new THREE.Mesh(long, material);
+    const south = new Mesh(long, material);
     south.position.set(0, WALL_HEIGHT / 2, half);
-    const sideGeom = new THREE.BoxGeometry(WALL_THICKNESS, WALL_HEIGHT, BOARD_SIZE + WALL_THICKNESS);
-    const west = new THREE.Mesh(sideGeom, material);
+    const sideGeom = new BoxGeometry(WALL_THICKNESS, WALL_HEIGHT, BOARD_SIZE + WALL_THICKNESS);
+    const west = new Mesh(sideGeom, material);
     west.position.set(-half, WALL_HEIGHT / 2, 0);
-    const east = new THREE.Mesh(sideGeom, material);
+    const east = new Mesh(sideGeom, material);
     east.position.set(half, WALL_HEIGHT / 2, 0);
     this.scene.add(north, south, west, east);
   }
 
   /** Diagonal bars for the diagonal board variant -- a no-op (empty list) for the classic variant, which has none. */
   private buildDeflectors(board: Board): void {
-    const geometry = new THREE.BoxGeometry(DEFLECTOR_LENGTH, DEFLECTOR_HEIGHT, DEFLECTOR_THICKNESS);
+    const geometry = new BoxGeometry(DEFLECTOR_LENGTH, DEFLECTOR_HEIGHT, DEFLECTOR_THICKNESS);
     for (const deflector of board.getAllDeflectors()) {
-      const material = new THREE.MeshStandardMaterial({ color: ROBOT_HEX[deflector.color], roughness: 0.4 });
-      const mesh = new THREE.Mesh(geometry, material);
+      const material = new MeshStandardMaterial({ color: ROBOT_HEX[deflector.color], roughness: 0.4 });
+      const mesh = new Mesh(geometry, material);
       const { x, z } = cellToWorld(deflector);
       mesh.position.set(x, DEFLECTOR_HEIGHT / 2, z);
       mesh.rotation.y = DEFLECTOR_ROTATION_Y[deflector.orientation];
@@ -410,25 +440,25 @@ export class BoardRenderer {
    * the tile -- both opt out of raycasting so clicks still resolve to the
    * body mesh beneath them.
    */
-  private buildRobots(): Record<RobotColor, THREE.Mesh> {
-    const geometry = new THREE.CylinderGeometry(ROBOT_RADIUS, ROBOT_RADIUS, ROBOT_HEIGHT, ROBOT_SIDES);
-    const domeGeometry = new THREE.CircleGeometry(ROBOT_DOME_RADIUS, 24);
-    const ringGeometry = new THREE.RingGeometry(ROBOT_RING_INNER, ROBOT_RING_OUTER, 32);
-    const out = {} as Record<RobotColor, THREE.Mesh>;
+  private buildRobots(): Record<RobotColor, Mesh> {
+    const geometry = new CylinderGeometry(ROBOT_RADIUS, ROBOT_RADIUS, ROBOT_HEIGHT, ROBOT_SIDES);
+    const domeGeometry = new CircleGeometry(ROBOT_DOME_RADIUS, 24);
+    const ringGeometry = new RingGeometry(ROBOT_RING_INNER, ROBOT_RING_OUTER, 32);
+    const out = {} as Record<RobotColor, Mesh>;
     for (const color of ROBOT_COLORS) {
-      const material = new THREE.MeshBasicMaterial({ color: ROBOT_HEX[color] });
-      const mesh = new THREE.Mesh(geometry, material);
+      const material = new MeshBasicMaterial({ color: ROBOT_HEX[color] });
+      const mesh = new Mesh(geometry, material);
       mesh.position.y = ROBOT_HEIGHT / 2;
 
-      const domeMaterial = new THREE.MeshBasicMaterial({ color: darkenHex(ROBOT_HEX[color], ROBOT_DOME_DARKEN) });
-      const dome = new THREE.Mesh(domeGeometry, domeMaterial);
+      const domeMaterial = new MeshBasicMaterial({ color: darkenHex(ROBOT_HEX[color], ROBOT_DOME_DARKEN) });
+      const dome = new Mesh(domeGeometry, domeMaterial);
       dome.rotation.x = -Math.PI / 2;
       dome.position.y = ROBOT_HEIGHT / 2 + 0.001; // just above the body's own top face, in its local frame
       dome.raycast = () => {};
       mesh.add(dome);
 
-      const ringMaterial = new THREE.MeshBasicMaterial({ color: lightenHex(ROBOT_HEX[color], ROBOT_RING_LIGHTEN), side: THREE.DoubleSide });
-      const ring = new THREE.Mesh(ringGeometry, ringMaterial);
+      const ringMaterial = new MeshBasicMaterial({ color: lightenHex(ROBOT_HEX[color], ROBOT_RING_LIGHTEN), side: DoubleSide });
+      const ring = new Mesh(ringGeometry, ringMaterial);
       ring.rotation.x = -Math.PI / 2;
       ring.position.y = ROBOT_RING_Y_WORLD - ROBOT_HEIGHT / 2; // local offset that lands the ring at world y = ROBOT_RING_Y_WORLD, on the tile around the body's base
       ring.raycast = () => {};
@@ -450,19 +480,19 @@ export class BoardRenderer {
     }
   }
 
-  private buildIconMesh(target: Target): THREE.Object3D {
+  private buildIconMesh(target: Target): Object3D {
     if (target.shape === 'swirl') {
       // A second, thinner arm in a contrasting warm color (opposite the
       // primary purple arm, phase-shifted by half a turn) so the vortex
       // reads as two interleaved strands rather than one flat purple shape.
-      const group = new THREE.Group();
-      const primary = new THREE.Mesh(
+      const group = new Group();
+      const primary = new Mesh(
         buildSwirlGeometry(0.32, 1.6, 0.16, 40),
-        new THREE.MeshBasicMaterial({ color: targetColorHex(target.color), side: THREE.DoubleSide }),
+        new MeshBasicMaterial({ color: targetColorHex(target.color), side: DoubleSide }),
       );
-      const secondary = new THREE.Mesh(
+      const secondary = new Mesh(
         buildSwirlGeometry(0.32, 1.6, 0.14, 40, Math.PI),
-        new THREE.MeshBasicMaterial({ color: WARP_SECONDARY_HEX, side: THREE.DoubleSide }),
+        new MeshBasicMaterial({ color: WARP_SECONDARY_HEX, side: DoubleSide }),
       );
       primary.rotation.x = -Math.PI / 2;
       secondary.rotation.x = -Math.PI / 2;
@@ -471,8 +501,8 @@ export class BoardRenderer {
       return group;
     }
     const geometry = buildIconGeometry(target.shape);
-    const material = new THREE.MeshBasicMaterial({ color: targetColorHex(target.color), side: THREE.DoubleSide });
-    const mesh = new THREE.Mesh(geometry, material);
+    const material = new MeshBasicMaterial({ color: targetColorHex(target.color), side: DoubleSide });
+    const mesh = new Mesh(geometry, material);
     mesh.rotation.x = -Math.PI / 2;
     return mesh;
   }
@@ -486,18 +516,18 @@ export class BoardRenderer {
    * contrast against it regardless of how the shape's own color happens to
    * read against a plain tile (a yellow shape on a light tile, say).
    */
-  private buildIconWithRing(target: Target): THREE.Group {
-    const group = new THREE.Group();
-    const ringGeometry = new THREE.RingGeometry(ICON_RING_INNER, ICON_RING_OUTER, 32);
-    const ringMaterial = new THREE.MeshBasicMaterial({ color: targetColorHex(target.color), side: THREE.DoubleSide });
-    const ring = new THREE.Mesh(ringGeometry, ringMaterial);
+  private buildIconWithRing(target: Target): Group {
+    const group = new Group();
+    const ringGeometry = new RingGeometry(ICON_RING_INNER, ICON_RING_OUTER, 32);
+    const ringMaterial = new MeshBasicMaterial({ color: targetColorHex(target.color), side: DoubleSide });
+    const ring = new Mesh(ringGeometry, ringMaterial);
     ring.rotation.x = -Math.PI / 2;
     ring.position.y = ICON_RING_Y_OFFSET;
     group.add(ring);
 
-    const circleGeometry = new THREE.CircleGeometry(ICON_RING_INNER, 32);
-    const circleMaterial = new THREE.MeshBasicMaterial({ color: 0xffffff, side: THREE.DoubleSide });
-    const circle = new THREE.Mesh(circleGeometry, circleMaterial);
+    const circleGeometry = new CircleGeometry(ICON_RING_INNER, 32);
+    const circleMaterial = new MeshBasicMaterial({ color: 0xffffff, side: DoubleSide });
+    const circle = new Mesh(circleGeometry, circleMaterial);
     circle.rotation.x = -Math.PI / 2;
     circle.position.y = ICON_CIRCLE_Y_OFFSET;
     group.add(circle);
@@ -506,10 +536,10 @@ export class BoardRenderer {
     return group;
   }
 
-  private buildRing(innerRadius: number, outerRadius: number, color: number, y: number): THREE.Mesh {
-    const geometry = new THREE.RingGeometry(innerRadius, outerRadius, 32);
-    const material = new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.85, side: THREE.DoubleSide });
-    const mesh = new THREE.Mesh(geometry, material);
+  private buildRing(innerRadius: number, outerRadius: number, color: number, y: number): Mesh {
+    const geometry = new RingGeometry(innerRadius, outerRadius, 32);
+    const material = new MeshBasicMaterial({ color, transparent: true, opacity: 0.85, side: DoubleSide });
+    const mesh = new Mesh(geometry, material);
     mesh.rotation.x = -Math.PI / 2;
     mesh.position.y = y;
     this.scene.add(mesh);
@@ -566,12 +596,12 @@ export class BoardRenderer {
    * attempt (see showSolutionPath / showMoveTrail below) -- numbering is
    * the only real difference between the two.
    */
-  private drawDashedMoves(group: THREE.Group, moves: readonly { color: RobotColor; path: readonly Cell[] }[], numbered: boolean): void {
+  private drawDashedMoves(group: Group, moves: readonly { color: RobotColor; path: readonly Cell[] }[], numbered: boolean): void {
     const dashGeometry = buildFlatRectGeometry(SOLUTION_DASH_LENGTH, SOLUTION_DASH_WIDTH);
     const arrowGeometry = buildFlatArrowGeometry(SOLUTION_ARROW_LENGTH, SOLUTION_ARROW_WIDTH);
 
     moves.forEach((move, moveIndex) => {
-      const material = new THREE.MeshBasicMaterial({ color: ROBOT_HEX[move.color], side: THREE.DoubleSide });
+      const material = new MeshBasicMaterial({ color: ROBOT_HEX[move.color], side: DoubleSide });
       const runs = splitPathIntoRuns(move.path);
       // A consistent per-move sideways offset, applied perpendicular to
       // whichever direction that move is running at each point -- so a
@@ -588,7 +618,7 @@ export class BoardRenderer {
         const dashCount = Math.max(1, Math.round(length / (SOLUTION_DASH_LENGTH + SOLUTION_DASH_GAP)));
         for (let d = 0; d < dashCount; d++) {
           const t = (d + 0.5) / dashCount; // centers each dash within its own slot along the run
-          const dash = new THREE.Mesh(dashGeometry, material);
+          const dash = new Mesh(dashGeometry, material);
           dash.position.set(run.a.x + (run.b.x - run.a.x) * t + perpX, SOLUTION_PATH_Y, run.a.z + (run.b.z - run.a.z) * t + perpZ);
           dash.rotation.y = angle;
           group.add(dash);
@@ -608,7 +638,7 @@ export class BoardRenderer {
       if (lastRun) {
         const perpX = -lastRun.dr * jitter;
         const perpZ = lastRun.dc * jitter;
-        const arrow = new THREE.Mesh(arrowGeometry, material);
+        const arrow = new Mesh(arrowGeometry, material);
         arrow.position.set(lastRun.b.x + perpX, SOLUTION_PATH_Y, lastRun.b.z + perpZ);
         arrow.rotation.y = directionAngle(lastRun.dc, lastRun.dr);
         group.add(arrow);
@@ -619,7 +649,7 @@ export class BoardRenderer {
   /** The AI's revealed optimal solution -- unnumbered, since it's a single proposed sequence rather than moves already taken. */
   showSolutionPath(moves: readonly { color: RobotColor; path: readonly Cell[] }[]): void {
     this.clearSolutionPath();
-    const group = new THREE.Group();
+    const group = new Group();
     this.drawDashedMoves(group, moves, false);
     this.scene.add(group);
     this.solutionPathGroup = group;
@@ -636,7 +666,7 @@ export class BoardRenderer {
   showMoveTrail(moves: readonly { color: RobotColor; path: readonly Cell[] }[]): void {
     this.clearMoveTrail();
     if (moves.length === 0) return;
-    const group = new THREE.Group();
+    const group = new Group();
     this.drawDashedMoves(group, moves, true);
     this.scene.add(group);
     this.moveTrailGroup = group;
@@ -660,9 +690,9 @@ export class BoardRenderer {
    * area a player would expect on a touch screen. Returns null for a click
    * off the board entirely (outside the BOARD_SIZE grid).
    */
-  cellAt(ndc: THREE.Vector2): Cell | null {
+  cellAt(ndc: Vector2): Cell | null {
     this.pickRaycaster.setFromCamera(ndc, this.camera);
-    const point = new THREE.Vector3();
+    const point = new Vector3();
     if (!this.pickRaycaster.ray.intersectPlane(this.pickPlane, point)) return null;
     const half = (BOARD_SIZE - 1) / 2;
     const col = Math.round(point.x + half);

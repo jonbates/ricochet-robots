@@ -1,4 +1,4 @@
-import * as THREE from 'three';
+import { Vector2, WebGLRenderer } from 'three';
 import { Board, type Cell, cellKey, type Direction, ROBOT_COLORS, type RobotColor, sameCell } from './board/Board';
 import { buildBoardVariant, type BoardVariantId, type QuadrantAssignment, randomInitialRobots, type Target } from './board/BoardLayout';
 import { type Bid, GameState, type Player, type RobotPositions, type RoundPhase } from './game/GameState';
@@ -89,7 +89,7 @@ export class Game {
   private readonly callbacks: GameCallbacks;
   private readonly board: Board;
   private readonly targets: readonly Target[];
-  private readonly renderer: THREE.WebGLRenderer;
+  private readonly renderer: WebGLRenderer;
   private readonly boardRenderer: BoardRenderer;
   private readonly resizeObserver: ResizeObserver;
   private readonly searchDepth: number;
@@ -122,7 +122,7 @@ export class Game {
     const initialRobots = matchStart?.initialRobots ?? randomInitialRobots([firstTarget.cell]);
     this.state = new GameState(this.board, initialRobots, firstTarget, playerNames);
 
-    this.renderer = new THREE.WebGLRenderer({ antialias: true });
+    this.renderer = new WebGLRenderer({ antialias: true });
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     this.container.appendChild(this.renderer.domElement);
 
@@ -417,7 +417,7 @@ export class Game {
   /** Which robot (if any) occupies the board cell under a screen point -- shared by handleClick and selectRobotAtPoint. Pure: no side effects. */
   private robotColorAtPoint(clientX: number, clientY: number): RobotColor | null {
     const rect = this.renderer.domElement.getBoundingClientRect();
-    const ndc = new THREE.Vector2(
+    const ndc = new Vector2(
       ((clientX - rect.left) / rect.width) * 2 - 1,
       -((clientY - rect.top) / rect.height) * 2 + 1,
     );
