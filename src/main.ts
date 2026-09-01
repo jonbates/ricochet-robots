@@ -1,9 +1,12 @@
 import './style.css';
-import { DEFAULT_SEARCH_DEPTH, Game, type UpdateInfo, WIN_SCORE } from './Game';
-import type { BoardVariantId, Target } from './board/BoardLayout';
+import { DEFAULT_SEARCH_DEPTH, Game, LOCAL_NETWORK_CONTEXT, type NetworkContext, pickTarget, type UpdateInfo, WIN_SCORE } from './Game';
+import { buildBoardVariant, type BoardVariantId, randomInitialRobots, randomQuadrantAssignment, type Target } from './board/BoardLayout';
 import type { Bid, Player } from './game/GameState';
 import type { Cell } from './board/Board';
 import { targetCssColor } from './colors';
+import { NetworkRoom } from './net/room';
+import { generateRoomCode, normalizeCodeInput, toRoomId } from './net/roomCode';
+import type { LobbyPlayer, StartMatchMsg } from './net/protocol';
 
 function required<T>(el: T | null, selector: string): T {
   if (!el) throw new Error(`Missing required DOM element: ${selector} -- check index.html`);
@@ -89,12 +92,227 @@ const matchOverOverlay = required(document.querySelector<HTMLDivElement>('#match
 const matchOverTitle = required(document.querySelector<HTMLHeadingElement>('#match-over-title'), '#match-over-title');
 const playAgainBtn = required(document.querySelector<HTMLButtonElement>('#play-again-btn'), '#play-again-btn');
 
+const playOnlineBtn = required(document.querySelector<HTMLButtonElement>('#play-online-btn'), '#play-online-btn');
+const lobbyOverlay = required(document.querySelector<HTMLDivElement>('#lobby-overlay'), '#lobby-overlay');
+const lobbyModeSelect = required(document.querySelector<HTMLDivElement>('#lobby-mode-select'), '#lobby-mode-select');
+const lobbyNameInput = required(document.querySelector<HTMLInputElement>('#lobby-name-input'), '#lobby-name-input');
+const lobbyHostBtn = required(document.querySelector<HTMLButtonElement>('#lobby-host-btn'), '#lobby-host-btn');
+const lobbyJoinCodeInput = required(
+  document.querySelector<HTMLInputElement>('#lobby-join-code-input'),
+  '#lobby-join-code-input',
+);
+const lobbyJoinBtn = required(document.querySelector<HTMLButtonElement>('#lobby-join-btn'), '#lobby-join-btn');
+const lobbyError = required(document.querySelector<HTMLParagraphElement>('#lobby-error'), '#lobby-error');
+const lobbyModeBackBtn = required(
+  document.querySelector<HTMLButtonElement>('#lobby-mode-back-btn'),
+  '#lobby-mode-back-btn',
+);
+
+const lobbyRoom = required(document.querySelector<HTMLDivElement>('#lobby-room'), '#lobby-room');
+const lobbyRoomCodeValue = required(
+  document.querySelector<HTMLElement>('#lobby-room-code-value'),
+  '#lobby-room-code-value',
+);
+const lobbyBoardSelect = required(document.querySelector<HTMLDivElement>('#lobby-board-select'), '#lobby-board-select');
+const lobbyBoardButtons = Array.from(document.querySelectorAll<HTMLButtonElement>('.lobby-board-btn'));
+const lobbyBoardReadonly = required(
+  document.querySelector<HTMLParagraphElement>('#lobby-board-readonly'),
+  '#lobby-board-readonly',
+);
+const lobbyRosterList = required(document.querySelector<HTMLDivElement>('#lobby-roster-list'), '#lobby-roster-list');
+const lobbyStartBtn = required(document.querySelector<HTMLButtonElement>('#lobby-start-btn'), '#lobby-start-btn');
+const lobbyWaitingText = required(
+  document.querySelector<HTMLParagraphElement>('#lobby-waiting-text'),
+  '#lobby-waiting-text',
+);
+const lobbyLeaveBtn = required(document.querySelector<HTMLButtonElement>('#lobby-leave-btn'), '#lobby-leave-btn');
+
+const attemptInstructions = required(
+  document.querySelector<HTMLParagraphElement>('#attempt-instructions'),
+  '#attempt-instructions',
+);
+
 winScoreEl.textContent = String(WIN_SCORE);
 searchDepthInput.value = String(DEFAULT_SEARCH_DEPTH);
 
 let game: Game | null = null;
 let currentPlayerNames: string[] = [];
 let lastPhase: UpdateInfo['phase'] | null = null;
+
+// -- Online lobby (Trystero, host-authoritative -- see src/net/) -----------
+
+let room: NetworkRoom | null = null;
+let myRole: 'host' | 'client' | null = null;
+let lobbyVariantId: BoardVariantId = 'classic';
+let lobbyPlayers: LobbyPlayer[] = [];
+
+function generateSelfName(): string {
+  return `Player ${Math.floor(1000 + Math.random() * 9000)}`;
+}
+lobbyNameInput.value = generateSelfName();
+
+function showLobbySubView(view: 'mode-select' | 'room'): void {
+  lobbyModeSelect.classList.toggle('visible', view === 'mode-select');
+  lobbyRoom.classList.toggle('visible', view === 'room');
+}
+
+function leaveRoom(): void {
+  room?.leave();
+  room = null;
+  myRole = null;
+  lobbyPlayers = [];
+}
+
+function broadcastRoster(): void {
+  room?.roster.send({ players: lobbyPlayers, variantId: lobbyVariantId });
+}
+
+function renderRoster(): void {
+  lobbyRosterList.replaceChildren();
+  for (const player of lobbyPlayers) {
+    const row = document.createElement('div');
+    row.className = 'lobby-roster-row';
+
+    const name = document.createElement('span');
+    name.className = 'lobby-roster-name';
+    name.textContent = player.name;
+    row.appendChild(name);
+
+    if (player.isHost) {
+      const hostTag = document.createElement('span');
+      hostTag.className = 'lobby-roster-host-tag';
+      hostTag.textContent = 'HOST';
+      row.appendChild(hostTag);
+    }
+    lobbyRosterList.appendChild(row);
+  }
+}
+
+function boardLabel(variantId: BoardVariantId): string {
+  return variantId === 'diagonal' ? 'Diagonal Board' : 'Classic Board';
+}
+
+function renderLobbyBoardReadonly(): void {
+  lobbyBoardReadonly.textContent = `Board: ${boardLabel(lobbyVariantId)}`;
+}
+
+function renderLobbyBoardSelected(): void {
+  for (const btn of lobbyBoardButtons) {
+    btn.classList.toggle('selected', btn.dataset.variant === lobbyVariantId);
+  }
+}
+
+function hostRoom(): void {
+  leaveRoom();
+  const code = generateRoomCode();
+  const newRoom = new NetworkRoom(toRoomId(code));
+  room = newRoom;
+  myRole = 'host';
+  lobbyVariantId = 'classic';
+  lobbyPlayers = [{ peerId: newRoom.selfId, name: lobbyNameInput.value.trim() || generateSelfName(), isHost: true }];
+
+  newRoom.onPeerJoin((peerId) => {
+    lobbyPlayers.push({ peerId, name: `Guest ${lobbyPlayers.length + 1}`, isHost: false });
+    broadcastRoster();
+    renderRoster();
+  });
+  newRoom.onPeerLeave((peerId) => {
+    lobbyPlayers = lobbyPlayers.filter((p) => p.peerId !== peerId);
+    broadcastRoster();
+    renderRoster();
+  });
+
+  lobbyRoomCodeValue.textContent = code;
+  lobbyBoardSelect.hidden = false;
+  lobbyBoardReadonly.hidden = true;
+  lobbyStartBtn.hidden = false;
+  lobbyWaitingText.hidden = true;
+  renderRoster();
+  renderLobbyBoardSelected();
+  broadcastRoster();
+  lobbyOverlay.classList.add('visible');
+  showLobbySubView('room');
+}
+
+function joinRoomWithCode(rawCode: string): void {
+  const code = normalizeCodeInput(rawCode);
+  if (code.length !== 5) {
+    lobbyError.textContent = 'Enter the 5-character room code.';
+    return;
+  }
+  lobbyError.textContent = '';
+  leaveRoom();
+  const newRoom = new NetworkRoom(toRoomId(code));
+  room = newRoom;
+  myRole = 'client';
+
+  newRoom.roster.onMessage = (msg) => {
+    lobbyPlayers = msg.players;
+    lobbyVariantId = msg.variantId;
+    lobbyWaitingText.hidden = false;
+    renderRoster();
+    renderLobbyBoardReadonly();
+  };
+  newRoom.startMatch.onMessage = (msg) => beginMultiplayerMatch(msg);
+
+  lobbyRoomCodeValue.textContent = code;
+  lobbyBoardSelect.hidden = true;
+  lobbyBoardReadonly.hidden = false;
+  lobbyBoardReadonly.textContent = 'Connecting...';
+  lobbyStartBtn.hidden = true;
+  lobbyWaitingText.hidden = true; // shown once the host's roster actually arrives, not before
+  lobbyRosterList.replaceChildren();
+  lobbyOverlay.classList.add('visible');
+  showLobbySubView('room');
+}
+
+/** Host-only: resolves the three Math.random() call sites BoardLayout/Game would otherwise call independently on every peer (quadrant assignment, initial robot positions, first target), sends the result to everyone, and begins the match locally. */
+function startMultiplayerMatch(): void {
+  if (!room || myRole !== 'host') return;
+  const quadrantAssignment = randomQuadrantAssignment();
+  const variant = buildBoardVariant(lobbyVariantId, quadrantAssignment);
+  const firstTarget = pickTarget(variant.targets, null);
+  const initialRobots = randomInitialRobots([firstTarget.cell]);
+  const msg: StartMatchMsg = {
+    variantId: lobbyVariantId,
+    quadrantAssignment,
+    searchDepth: currentSearchDepth(),
+    playerOrder: lobbyPlayers.map((p) => p.peerId),
+    playerNames: lobbyPlayers.map((p) => p.name),
+    initialRobots,
+    firstTarget,
+  };
+  room.startMatch.send(msg);
+  beginMultiplayerMatch(msg);
+}
+
+function beginMultiplayerMatch(msg: StartMatchMsg): void {
+  if (!room || !myRole) return;
+  const mySlot = msg.playerOrder.indexOf(room.selfId);
+  const net: NetworkContext = { role: myRole, room, playerOrder: msg.playerOrder, mySlot: mySlot === -1 ? null : mySlot };
+
+  currentPlayerNames = msg.playerNames;
+  lobbyOverlay.classList.remove('visible');
+  startOverlay.classList.remove('visible');
+  game?.dispose();
+  lastPhase = null;
+  game = new Game(
+    container,
+    msg.variantId,
+    msg.playerNames,
+    { onUpdate: handleUpdate, onMatchOver: handleMatchOver },
+    msg.searchDepth,
+    net,
+    { quadrantAssignment: msg.quadrantAssignment, initialRobots: msg.initialRobots, firstTarget: msg.firstTarget },
+  );
+  game.start();
+}
+
+function backToStartOverlay(): void {
+  leaveRoom();
+  lobbyOverlay.classList.remove('visible');
+  startOverlay.classList.add('visible');
+}
 
 function updatePlayerNameInputVisibility(): void {
   const count = Number(playerCountSelect.value);
@@ -165,10 +383,11 @@ function renderPlayers(info: UpdateInfo): void {
   info.players.forEach((player, i) => {
     const els = playerRowEls[i];
     els.scoreEl.textContent = String(player.score);
-    els.row.classList.toggle('active-bidder', info.activePlayerName === player.name);
+    els.row.classList.toggle('active-bidder', info.activeBidPlayerIndex === i);
     const bid = info.bids.find((b: Bid) => b.playerIndex === i);
     els.bidValue.textContent = bid ? `bid ${bid.moves}` : '';
-    els.bidBtn.hidden = info.phase !== 'bidding';
+    // In a networked match, only my own row's Bid button is usable -- I can't bid on another connected player's behalf. Local hot-seat play (mySlot === null) keeps every row's button, since it's one shared keyboard.
+    els.bidBtn.hidden = info.phase !== 'bidding' || (info.mySlot !== null && info.mySlot !== i);
   });
 }
 
@@ -213,6 +432,19 @@ function renderAttempting(info: UpdateInfo): void {
   attemptMovesRemaining.textContent = `Moves remaining: ${info.remainingMoves}`;
   ricochetHint.hidden = !info.blockedByRicochetRule;
   hudAttemptBid.textContent = `Bid ${info.activeBidMoves} · ${info.remainingMoves} left`;
+
+  // In a networked match, only the peer occupying the active bidder's slot
+  // can actually move -- everyone else's arrow keys/clicks are inert (see
+  // Game.canActNow), so say so and visibly disable Undo/Concede rather than
+  // leaving them clickable but silently no-op. Local hot-seat play
+  // (mySlot === null) keeps the original "click a robot..." instructions,
+  // since anyone at the shared keyboard can act whenever it's the turn.
+  const myTurn = info.mySlot === null || info.mySlot === info.activeBidPlayerIndex;
+  attemptInstructions.textContent = myTurn
+    ? 'Click a robot to select it · Arrow keys to slide it · Z to undo'
+    : `Waiting for ${info.activePlayerName} to move...`;
+  undoBtn.disabled = !myTurn;
+  concedeBtn.disabled = !myTurn;
 }
 
 function describeMove(move: { color: string; from: Cell; to: Cell }): string {
@@ -260,6 +492,7 @@ function currentSearchDepth(): number {
 }
 
 function startGame(variantId: BoardVariantId): void {
+  leaveRoom(); // solo/hot-seat play always starts from a clean slate, even if reached via "Back" out of an online lobby
   currentPlayerNames = currentPlayerSetup();
   game?.dispose();
   lastPhase = null;
@@ -269,6 +502,7 @@ function startGame(variantId: BoardVariantId): void {
     currentPlayerNames,
     { onUpdate: handleUpdate, onMatchOver: handleMatchOver },
     currentSearchDepth(),
+    LOCAL_NETWORK_CONTEXT,
   );
   game.start();
   startOverlay.classList.remove('visible');
@@ -302,3 +536,38 @@ playAgainBtn.addEventListener('click', () => {
   game?.resetMatch(currentPlayerNames);
   matchOverOverlay.classList.remove('visible');
 });
+
+// -- Online lobby wiring -----------------------------------------------
+
+playOnlineBtn.addEventListener('click', () => {
+  lobbyError.textContent = '';
+  lobbyJoinCodeInput.value = '';
+  startOverlay.classList.remove('visible');
+  lobbyOverlay.classList.add('visible');
+  showLobbySubView('mode-select');
+});
+lobbyModeBackBtn.addEventListener('click', backToStartOverlay);
+lobbyLeaveBtn.addEventListener('click', backToStartOverlay);
+lobbyHostBtn.addEventListener('click', hostRoom);
+lobbyJoinBtn.addEventListener('click', () => joinRoomWithCode(lobbyJoinCodeInput.value));
+lobbyJoinCodeInput.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') joinRoomWithCode(lobbyJoinCodeInput.value);
+});
+lobbyStartBtn.addEventListener('click', startMultiplayerMatch);
+for (const btn of lobbyBoardButtons) {
+  btn.addEventListener('click', () => {
+    if (myRole !== 'host') return;
+    lobbyVariantId = btn.dataset.variant as BoardVariantId;
+    renderLobbyBoardSelected();
+    broadcastRoster();
+  });
+}
+
+// Opening a shared link (?room=CODE) drops straight into the join flow.
+const urlRoomCode = new URLSearchParams(window.location.search).get('room');
+if (urlRoomCode) {
+  lobbyJoinCodeInput.value = urlRoomCode;
+  startOverlay.classList.remove('visible');
+  lobbyOverlay.classList.add('visible');
+  joinRoomWithCode(urlRoomCode);
+}

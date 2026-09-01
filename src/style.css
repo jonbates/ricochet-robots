@@ -357,3 +357,80 @@ body {
 .end-overlay-actions button.secondary-btn:hover {
   @apply bg-[rgba(255,255,255,0.1)];
 }
+
+.play-online-btn {
+  @apply mt-4;
+}
+
+.lobby-overlay-card {
+  @apply min-w-[380px] max-w-[480px] text-left;
+}
+
+.lobby-overlay-card h2 {
+  @apply mt-0 mb-4 text-2xl;
+}
+
+/* Same reparent-a-single-view-at-a-time approach as .end-overlay/.visible above -- #lobby-mode-select and #lobby-room are two views of the same card, only one shown at a time. */
+.lobby-view {
+  @apply hidden flex-col items-stretch gap-3.5;
+}
+
+.lobby-view.visible {
+  @apply flex;
+}
+
+.lobby-name-input {
+  @apply w-full mb-1;
+}
+
+.lobby-join-row {
+  @apply flex gap-2;
+}
+
+#lobby-join-code-input {
+  @apply flex-1 text-base font-bold tracking-[2px] text-center uppercase px-3 py-2.5 rounded-lg border border-[rgba(255,255,255,0.3)] bg-[rgba(255,255,255,0.06)] text-[#e8f4ff];
+}
+
+.lobby-error {
+  @apply m-0 min-h-[1.2em] text-[#ff6b6b] text-sm;
+}
+
+.lobby-room-code {
+  @apply m-0 text-[15px];
+}
+
+.lobby-room-code strong {
+  @apply text-xl tracking-[3px] text-[#4ade80];
+}
+
+#lobby-board-select .board-btn {
+  @apply px-2.5 py-3;
+}
+
+#lobby-board-select .board-btn.selected {
+  @apply border-[#4ade80] bg-[rgba(74,222,128,0.16)] shadow-[0_0_0_2px_rgba(74,222,128,0.35)_inset];
+}
+
+.lobby-board-readonly {
+  @apply m-0 text-[15px] text-[rgba(232,244,255,0.85)];
+}
+
+.lobby-roster-list {
+  @apply flex flex-col gap-1.5 max-h-[220px] overflow-y-auto py-1;
+}
+
+.lobby-roster-row {
+  @apply flex items-center gap-2 px-2.5 py-1.5 rounded-lg bg-[rgba(255,255,255,0.05)] text-left;
+}
+
+.lobby-roster-name {
+  @apply flex-1 min-w-0 overflow-hidden text-ellipsis whitespace-nowrap;
+}
+
+.lobby-roster-host-tag {
+  @apply flex-none text-xs font-bold text-[#4ade80];
+}
+
+.lobby-waiting-text {
+  @apply m-0 text-[rgba(232,244,255,0.7)] text-sm;
+}

@@ -71,7 +71,9 @@
           <p id="ricochet-hint" class="ricochet-hint" hidden>
             Doesn't count -- a straight, unbent shot isn't a valid solve. Ricochet off something first.
           </p>
-          <p class="hud-instructions">Click a robot to select it · Arrow keys to slide it · Z to undo</p>
+          <p id="attempt-instructions" class="hud-instructions">
+            Click a robot to select it · Arrow keys to slide it · Z to undo
+          </p>
           <div class="hud-actions">
             <button id="undo-btn" type="button" class="secondary-btn small-btn">Undo</button>
             <button id="concede-btn" type="button" class="secondary-btn small-btn">Concede</button>
@@ -120,6 +122,46 @@
               turned 90&deg; and keeps sliding.
             </span>
           </button>
+        </div>
+        <button id="play-online-btn" type="button" class="secondary-btn play-online-btn">Play Online</button>
+      </div>
+    </div>
+
+    <div id="lobby-overlay" class="end-overlay">
+      <div class="end-overlay-card lobby-overlay-card">
+        <div id="lobby-mode-select" class="lobby-view visible">
+          <h2>Play Online</h2>
+          <label class="player-count-label" for="lobby-name-input">Your name</label>
+          <input id="lobby-name-input" type="text" class="player-name-input lobby-name-input" maxlength="20" />
+          <button id="lobby-host-btn" type="button" class="small-btn">Host a Game</button>
+          <div class="lobby-join-row">
+            <input id="lobby-join-code-input" type="text" maxlength="5" placeholder="ROOM CODE" autocomplete="off" />
+            <button id="lobby-join-btn" type="button" class="small-btn">Join</button>
+          </div>
+          <p id="lobby-error" class="lobby-error"></p>
+          <button id="lobby-mode-back-btn" type="button" class="secondary-btn small-btn">Back</button>
+        </div>
+
+        <div id="lobby-room" class="lobby-view">
+          <p class="lobby-room-code">Room code: <strong id="lobby-room-code-value"></strong></p>
+
+          <div id="lobby-board-select" class="board-select" hidden>
+            <button type="button" class="board-btn lobby-board-btn" data-variant="classic">
+              <span class="board-btn-title">Classic Board</span>
+              <span class="board-btn-desc">Straight walls only.</span>
+            </button>
+            <button type="button" class="board-btn lobby-board-btn" data-variant="diagonal">
+              <span class="board-btn-title">Diagonal Board</span>
+              <span class="board-btn-desc">Adds colored diagonal deflectors.</span>
+            </button>
+          </div>
+          <p id="lobby-board-readonly" class="lobby-board-readonly" hidden></p>
+
+          <div id="lobby-roster-list" class="lobby-roster-list"></div>
+
+          <button id="lobby-start-btn" type="button" class="small-btn" hidden>Start Game</button>
+          <p id="lobby-waiting-text" class="lobby-waiting-text" hidden>Waiting for the host to start...</p>
+          <button id="lobby-leave-btn" type="button" class="secondary-btn small-btn">Leave</button>
         </div>
       </div>
     </div>
