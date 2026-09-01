@@ -515,7 +515,8 @@ function handleUpdate(info: UpdateInfo): void {
     renderResolved(info);
     solutionDetail.hidden = true;
     solutionDetail.textContent = '';
-    revealSolutionBtn.hidden = false;
+    revealSolutionBtn.disabled = false;
+    revealSolutionBtn.textContent = 'Reveal Optimal Solution';
   }
   lastPhase = info.phase;
   lastInfo = info;
@@ -586,7 +587,12 @@ window.addEventListener('keydown', (e) => {
 roundContinueBtn.addEventListener('click', () => game?.continueToNextRound());
 revealSolutionBtn.addEventListener('click', () => {
   const result = game?.revealSolution();
-  revealSolutionBtn.hidden = true;
+  // Disabled in place rather than hidden -- hiding it would collapse its
+  // spot in the panel and shift Continue up into it, right under wherever
+  // the player's finger/cursor still was, risking an accidental tap on
+  // Continue immediately after Reveal.
+  revealSolutionBtn.disabled = true;
+  revealSolutionBtn.textContent = 'Solution Revealed';
   if (!result) {
     solutionDetail.textContent = 'No solution found within a reasonable search depth.';
   } else if (result.count === 0) {
