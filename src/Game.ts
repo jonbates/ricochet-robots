@@ -59,6 +59,8 @@ export interface UpdateInfo {
   target: Target;
   moveCount: number;
   selected: RobotColor | null;
+  /** Current cell of the selected robot, or null when nothing's selected -- lets the UI (the mobile D-pad) reposition itself away from whatever the player just tapped. */
+  selectedCell: Cell | null;
   players: Player[];
   phase: RoundPhase;
   bids: readonly Bid[]; // this round's bids so far, keyed by playerIndex
@@ -621,6 +623,7 @@ export class Game {
       target: this.state.target,
       moveCount: this.state.moveCount,
       selected: this.state.selected,
+      selectedCell: this.state.selected ? this.state.robots[this.state.selected] : null,
       players: this.state.players,
       phase: this.state.phase,
       bids: this.state.bids,

@@ -35,12 +35,7 @@ body {
 }
 
 #app {
-  /* min-h-[70vh] on mobile guarantees the board a real chunk of the screen
-     regardless of how tall the sidebar's own (now full-width, stacked)
-     content ends up -- without it, flex-1 with the default min-height:auto
-     would let the sidebar's natural height win the tug-of-war and squeeze
-     the board down instead of the page just scrolling further to reach it. */
-  @apply flex-1 min-w-0 min-h-[70vh] md:min-h-0 flex flex-col;
+  @apply flex-1 min-w-0 md:min-h-0 flex flex-col;
 }
 
 /* A dedicated header strip above the board itself (not floating over it) --
@@ -90,20 +85,38 @@ body {
      Kept to a few px on every side -- the target/countdown/bid panels
      around the board (top/bottom strips, sidebar) read as part of the same
      control surface, not a separate section, so they sit right up against
-     it rather than a full 20px gap away. */
-  @apply flex-1 min-h-0 m-1 relative;
+     it rather than a full 20px gap away.
+     Mobile (stacked layout): aspect-square derives the board's height
+     directly from its own width instead of stretching to fill whatever
+     leftover vertical space #app has -- the board itself always renders as
+     a square (BoardRenderer.applyAspect fits it fully either way), so
+     letting the *container* grow taller than that just left a large empty
+     gap between the board and #hud-bottom-strip below it. flex-none since
+     there's no longer any leftover space it should be growing into.
+     Desktop: unchanged (flex-1, no aspect constraint) -- the board there
+     fills whatever height the fixed-height row gives it, wide as that
+     allows, per BoardRenderer's own left-anchored letterboxing. */
+  @apply relative m-1 aspect-square flex-none md:aspect-auto md:flex-1 md:min-h-0;
 }
 
-/* A floating touch D-pad overlaying the board's bottom-right corner --
-   arrow keys have no mobile equivalent, and the board itself is for
-   selecting a robot (tap), not sliding one. Visible only on narrow/mobile
-   viewports (a physical keyboard covers this on desktop, via the `md:hidden`
-   folded into this rule) and only while there's actually a move to make;
-   toggled via the `hidden` attribute in main.ts (info.phase !== 'attempting'),
-   which needs its own, more specific rule below to reliably win regardless
-   of viewport width -- same reasoning as #hud-timer[hidden] further down. */
+/* A floating touch D-pad overlaying the board -- arrow keys have no mobile
+   equivalent, and the board itself is for selecting a robot (tap), not
+   sliding one. Visible only on narrow/mobile viewports (a physical keyboard
+   covers this on desktop, via the `md:hidden` folded into this rule) and
+   only while there's actually a move to make; toggled via the `hidden`
+   attribute in main.ts (info.phase !== 'attempting'), which needs its own,
+   more specific rule below to reliably win regardless of viewport width --
+   same reasoning as #hud-timer[hidden] further down.
+   Defaults to the bottom-right corner; main.ts adds .dpad-side-left to move
+   it to bottom-left instead whenever the selected robot is sitting on the
+   board's own right half, so the pad doesn't sit on top of the robot a
+   player just tapped. */
 .mobile-dpad {
   @apply absolute bottom-3 right-3 w-[132px] h-[132px] md:hidden;
+}
+
+.mobile-dpad.dpad-side-left {
+  @apply right-auto left-3;
 }
 
 .mobile-dpad[hidden] {
@@ -111,11 +124,11 @@ body {
 }
 
 .dpad-btn {
-  @apply absolute w-11 h-11 flex items-center justify-center rounded-full bg-[rgba(10,20,30,0.75)] border border-[rgba(255,255,255,0.3)] text-[#e8f4ff] text-lg leading-none backdrop-blur-sm;
+  @apply absolute w-11 h-11 flex items-center justify-center rounded-full bg-[#f1c40f] border border-[rgba(255,255,255,0.5)] text-white text-lg leading-none shadow-[0_2px_6px_rgba(0,0,0,0.4)];
 }
 
 .dpad-btn:active {
-  @apply bg-[rgba(43,111,255,0.45)];
+  @apply bg-[#d4ac0d];
 }
 
 .dpad-up {
