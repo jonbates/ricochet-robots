@@ -107,22 +107,19 @@ body {
    attribute in main.ts (info.phase !== 'attempting'), which needs its own,
    more specific rule below to reliably win regardless of viewport width --
    same reasoning as #hud-timer[hidden] further down.
-   Defaults to the bottom-right corner (lifted up off the board's own bottom
-   edge so it visibly hovers over the tiles rather than sitting flush
-   against the boundary); main.ts adds .dpad-side-left to move it to
-   bottom-left instead whenever the selected robot is sitting on the board's
-   own right half, so the pad doesn't sit on top of the robot a player just
-   tapped. rounded-2xl + overflow-hidden gives the whole widget one shared
-   background and softly clips the four buttons' outer corners -- each
-   button itself still fills the full square (see .dpad-btn), so nearly all
-   of that area stays clickable, just its very corner pixels are trimmed for
-   a less blocky look. */
+   Fixed at bottom-center (not shifted left/right based on the selected
+   robot -- a moving pad was more disorienting than useful, and it's no
+   longer needed to avoid covering a robot anyway, since a tap now clicks
+   through to one sitting underneath, see Game.selectRobotAtPoint), lifted
+   up off the board's own bottom edge so it visibly hovers over the tiles
+   rather than sitting flush against the boundary. rounded-2xl +
+   overflow-hidden gives the whole widget one shared background and softly
+   clips the four buttons' outer corners -- each button itself still fills
+   the full square (see .dpad-btn), so nearly all of that area stays
+   clickable, just its very corner pixels are trimmed for a less blocky
+   look. */
 .mobile-dpad {
-  @apply absolute bottom-8 right-3 w-[140px] h-[140px] md:hidden rounded-2xl bg-[rgba(58,69,80,0.5)] border-2 border-[#9ca3af] shadow-[0_2px_6px_rgba(0,0,0,0.4)] overflow-hidden;
-}
-
-.mobile-dpad.dpad-side-left {
-  @apply right-auto left-3;
+  @apply absolute bottom-8 left-1/2 -translate-x-1/2 w-[140px] h-[140px] md:hidden rounded-2xl bg-[rgba(58,69,80,0.5)] border-2 border-[#9ca3af] shadow-[0_2px_6px_rgba(0,0,0,0.4)] overflow-hidden;
 }
 
 .mobile-dpad[hidden] {

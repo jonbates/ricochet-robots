@@ -2,7 +2,7 @@ import './style.css';
 import { DEFAULT_SEARCH_DEPTH, Game, LOCAL_NETWORK_CONTEXT, type NetworkContext, pickTarget, type UpdateInfo, WIN_SCORE } from './Game';
 import { buildBoardVariant, type BoardVariantId, randomInitialRobots, randomQuadrantAssignment, type Target } from './board/BoardLayout';
 import type { Bid, Player } from './game/GameState';
-import { BOARD_SIZE, type Cell, type Direction } from './board/Board';
+import type { Cell, Direction } from './board/Board';
 import { buildTargetIconCanvas } from './render/targetIcon2d';
 import { NetworkRoom } from './net/room';
 import { generateRoomCode, normalizeCodeInput, toRoomId } from './net/roomCode';
@@ -508,10 +508,6 @@ function handleUpdate(info: UpdateInfo): void {
 
   hudAttempting.hidden = info.phase !== 'attempting';
   mobileDpad.hidden = info.phase !== 'attempting';
-  // Sits bottom-right by default; hops to bottom-left instead whenever the
-  // selected robot -- what the player's actually looking at right now -- is
-  // on the board's own right half, so the pad never covers it.
-  mobileDpad.classList.toggle('dpad-side-left', (info.selectedCell?.col ?? -1) >= BOARD_SIZE / 2);
   hudAttemptStatus.hidden = info.phase !== 'attempting';
   hudGiveUp.hidden = info.phase === 'resolved';
   roundResultPanel.hidden = info.phase !== 'resolved';

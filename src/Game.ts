@@ -56,8 +56,6 @@ export interface UpdateInfo {
   target: Target;
   moveCount: number;
   selected: RobotColor | null;
-  /** Current cell of the selected robot, or null when nothing's selected -- lets the UI (the mobile D-pad) reposition itself away from whatever the player just tapped. */
-  selectedCell: Cell | null;
   players: Player[];
   phase: RoundPhase;
   bids: readonly Bid[]; // this round's bids so far, keyed by playerIndex
@@ -135,6 +133,7 @@ export class Game {
     this.handleResize = this.handleResize.bind(this);
     this.handleClick = this.handleClick.bind(this);
     this.handleKeydown = this.handleKeydown.bind(this);
+    this.handleVisibilityChange = this.handleVisibilityChange.bind(this);
 
     // A ResizeObserver on the container itself, not a `window` resize
     // listener -- #board-area's own on-screen size can change for reasons
@@ -151,6 +150,14 @@ export class Game {
     this.resizeObserver.observe(this.container);
     this.renderer.domElement.addEventListener('click', this.handleClick);
     window.addEventListener('keydown', this.handleKeydown);
+    // A backgrounded tab can suspend ResizeObserver notifications (and
+    // rAF) same as it suspends the render loop itself -- if the container
+    // was resized while hidden, the renderer/camera (and the --board-width
+    // CSS var the HUD strips align to) can still be stale by the time the
+    // tab is visible again, breaking click hit-testing and the mobile
+    // D-pad's apparent position until something else happens to trigger a
+    // resize. Force a resync the moment it comes back.
+    document.addEventListener('visibilitychange', this.handleVisibilityChange);
     this.handleResize();
 
     if (this.net.room) {
@@ -224,6 +231,7 @@ export class Game {
   dispose(): void {
     this.stop();
     this.resizeObserver.disconnect();
+    document.removeEventListener('visibilitychange', this.handleVisibilityChange);
     window.removeEventListener('keydown', this.handleKeydown);
     this.renderer.domElement.removeEventListener('click', this.handleClick);
     this.renderer.dispose();
@@ -399,6 +407,11 @@ export class Game {
     // the board) can align with the board rather than the wider container.
     const boardWidth = width / height >= 1 ? height * this.boardRenderer.boardToViewRatio : width;
     this.container.parentElement?.style.setProperty('--board-width', `${boardWidth}px`);
+  }
+
+  private handleVisibilityChange(): void {
+    if (document.hidden) return;
+    this.handleResize();
   }
 
   /** Which robot (if any) occupies the board cell under a screen point -- shared by handleClick and selectRobotAtPoint. Pure: no side effects. */
@@ -629,7 +642,6 @@ export class Game {
       target: this.state.target,
       moveCount: this.state.moveCount,
       selected: this.state.selected,
-      selectedCell: this.state.selected ? this.state.robots[this.state.selected] : null,
       players: this.state.players,
       phase: this.state.phase,
       bids: this.state.bids,
