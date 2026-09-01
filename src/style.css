@@ -107,12 +107,18 @@ body {
    attribute in main.ts (info.phase !== 'attempting'), which needs its own,
    more specific rule below to reliably win regardless of viewport width --
    same reasoning as #hud-timer[hidden] further down.
-   Defaults to the bottom-right corner; main.ts adds .dpad-side-left to move
-   it to bottom-left instead whenever the selected robot is sitting on the
-   board's own right half, so the pad doesn't sit on top of the robot a
-   player just tapped. */
+   Defaults to the bottom-right corner (lifted up off the board's own bottom
+   edge so it visibly hovers over the tiles rather than sitting flush
+   against the boundary); main.ts adds .dpad-side-left to move it to
+   bottom-left instead whenever the selected robot is sitting on the board's
+   own right half, so the pad doesn't sit on top of the robot a player just
+   tapped. rounded-2xl + overflow-hidden gives the whole widget one shared
+   background and softly clips the four buttons' outer corners -- each
+   button itself still fills the full square (see .dpad-btn), so nearly all
+   of that area stays clickable, just its very corner pixels are trimmed for
+   a less blocky look. */
 .mobile-dpad {
-  @apply absolute bottom-3 right-3 w-[132px] h-[132px] md:hidden;
+  @apply absolute bottom-8 right-3 w-[140px] h-[140px] md:hidden rounded-2xl bg-[#3a4550] border border-[rgba(255,255,255,0.3)] shadow-[0_2px_6px_rgba(0,0,0,0.4)] overflow-hidden;
 }
 
 .mobile-dpad.dpad-side-left {
@@ -123,12 +129,32 @@ body {
   @apply hidden;
 }
 
+/* Each button fills the *entire* square, not just a small circle within it
+   -- clip-path carves out this one's own triangular quarter (the four
+   triangles meet exactly at the center with no gaps), so together all four
+   buttons cover every pixel of the pad with no dead space a tap can miss. */
 .dpad-btn {
-  @apply absolute w-11 h-11 flex items-center justify-center rounded-full bg-[#3a4550] border border-[rgba(255,255,255,0.3)] shadow-[0_2px_6px_rgba(0,0,0,0.4)];
+  @apply absolute inset-0 w-full h-full flex;
 }
 
 .dpad-btn:active {
-  @apply bg-[#2a333c];
+  @apply bg-[rgba(255,255,255,0.15)];
+}
+
+.dpad-up {
+  @apply items-start justify-center pt-3 [clip-path:polygon(0_0,100%_0,50%_50%)];
+}
+
+.dpad-down {
+  @apply items-end justify-center pb-3 [clip-path:polygon(0_100%,100%_100%,50%_50%)];
+}
+
+.dpad-left {
+  @apply items-center justify-start pl-3 [clip-path:polygon(0_0,0_100%,50%_50%)];
+}
+
+.dpad-right {
+  @apply items-center justify-end pr-3 [clip-path:polygon(100%_0,100%_100%,50%_50%)];
 }
 
 /* A solid CSS-drawn triangle (border trick), not a Unicode glyph -- some
@@ -152,22 +178,6 @@ body {
 
 .dpad-right .dpad-arrow {
   @apply rotate-90;
-}
-
-.dpad-up {
-  @apply top-0 left-1/2 -translate-x-1/2;
-}
-
-.dpad-down {
-  @apply bottom-0 left-1/2 -translate-x-1/2;
-}
-
-.dpad-left {
-  @apply left-0 top-1/2 -translate-y-1/2;
-}
-
-.dpad-right {
-  @apply right-0 top-1/2 -translate-y-1/2;
 }
 
 #board-area canvas {
