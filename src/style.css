@@ -118,7 +118,7 @@ body {
    of that area stays clickable, just its very corner pixels are trimmed for
    a less blocky look. */
 .mobile-dpad {
-  @apply absolute bottom-8 right-3 w-[140px] h-[140px] md:hidden rounded-2xl bg-[#3a4550] border border-[rgba(255,255,255,0.3)] shadow-[0_2px_6px_rgba(0,0,0,0.4)] overflow-hidden;
+  @apply absolute bottom-8 right-3 w-[140px] h-[140px] md:hidden rounded-2xl bg-[#3a4550] border-2 border-[#9ca3af] shadow-[0_2px_6px_rgba(0,0,0,0.4)] overflow-hidden;
 }
 
 .mobile-dpad.dpad-side-left {
@@ -165,7 +165,7 @@ body {
    reliably solid white on every device. Points up by default; each
    direction rotates the same shape rather than needing four separate ones. */
 .dpad-arrow {
-  @apply block w-0 h-0 border-l-[7px] border-r-[7px] border-b-[11px] border-l-transparent border-r-transparent border-b-white;
+  @apply block w-0 h-0 border-l-[11px] border-r-[11px] border-b-[17px] border-l-transparent border-r-transparent border-b-white;
 }
 
 .dpad-down .dpad-arrow {
