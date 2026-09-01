@@ -68,7 +68,17 @@ const playerCountSelect = required(
   document.querySelector<HTMLSelectElement>('#player-count-select'),
   '#player-count-select',
 );
-const playerNameInputs = Array.from(document.querySelectorAll<HTMLInputElement>('.player-name-input'));
+// Scoped to #player-name-inputs specifically, not a blanket '.player-name-input'
+// query -- #lobby-name-input (the online-lobby "Your name" field) shares that
+// same CSS class for its box styling, and an unscoped query here would sweep
+// it up too. It did: updatePlayerNameInputVisibility() below hides every
+// queried input whose index is >= the selected player count (max 4), and
+// #lobby-name-input -- appearing after all four in document order -- always
+// has index 4, so it was unconditionally hidden (`display: none`) from the
+// moment the page loaded. Not a network bug at all: the "Your name" field was
+// simply never visible or interactive for a real user to type into, in
+// either the host or join flow, since this feature was first built.
+const playerNameInputs = Array.from(document.querySelectorAll<HTMLInputElement>('#player-name-inputs .player-name-input'));
 const searchDepthInput = required(
   document.querySelector<HTMLInputElement>('#search-depth-input'),
   '#search-depth-input',
