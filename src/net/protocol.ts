@@ -6,10 +6,12 @@ import type { Direction, RobotColor } from '../board/Board';
 import type { BoardVariantId, QuadrantAssignment, Target } from '../board/BoardLayout';
 import type { Bid, Move, Player, RobotPositions, RoundPhase } from '../game/GameState';
 
-export type PeerId = string;
+export type PeerId = string; // Trystero's own connection id -- ephemeral, regenerated on every reconnect/refresh
+export type PlayerId = string; // this app's own stable per-tab identity (see main.ts's myPlayerId), persisted across a refresh so a rejoining peer can be recognized despite getting a brand-new PeerId
 
 export interface LobbyPlayer {
   peerId: PeerId;
+  playerId: PlayerId;
   name: string;
   isHost: boolean;
 }
@@ -21,23 +23,31 @@ export interface LobbyRosterMsg {
 }
 
 /**
- * Host -> everyone, once, when the host clicks "Start Match". Carries every
- * value the three unseeded Math.random() call sites in BoardLayout.ts/
- * Game.ts would otherwise have produced independently on each peer
- * (quadrant assignment, initial robot positions, first target) -- the host
- * resolves them once and every peer (including itself) builds the identical
- * Board/GameState from these values instead of calling the randomized
- * defaults. `playerOrder[i]` is the peer controlling `players[i]`; the
- * host's own selfId is included like any other peer.
+ * Host -> everyone, once, when the host clicks "Start Match" -- and again,
+ * targeted at just one peer, whenever that peer (re)joins mid-match (see
+ * Game.handleRename) so a refreshed/reconnected peer can rebuild the exact
+ * same match from scratch. Carries every value the three unseeded
+ * Math.random() call sites in BoardLayout.ts/Game.ts would otherwise have
+ * produced independently on each peer (quadrant assignment, initial robot
+ * positions, first target) -- the host resolves them once and every peer
+ * (including itself) builds the identical Board/GameState from these values
+ * instead of calling the randomized defaults. `playerOrder[i]` is the
+ * PlayerId (stable across a refresh, unlike PeerId) controlling `players[i]`;
+ * the host's own myPlayerId is included like any other player. `matchId` is
+ * a fresh id per match, letting a peer that already has this exact match
+ * live (a same-tab reconnect blip, not a real refresh) skip rebuilding its
+ * Game/WebGL renderer when this message arrives again -- see main.ts's
+ * `currentMatchId` check.
  */
 export interface StartMatchMsg {
   variantId: BoardVariantId;
   quadrantAssignment: QuadrantAssignment;
   searchDepth: number;
-  playerOrder: PeerId[];
+  playerOrder: PlayerId[];
   playerNames: string[];
   initialRobots: RobotPositions;
   firstTarget: Target;
+  matchId: string;
 }
 
 /**
@@ -61,9 +71,18 @@ export type ActionMsg =
   | { type: 'playAgain' }
   | { type: 'revealSolution' };
 
-/** Client -> host, once, right after joining the lobby: the display name this peer typed into "Your name" before the host had a chance to assign a placeholder. */
+/**
+ * Client -> host, sent once right after joining -- both a fresh join (the
+ * display name typed into "Your name", before the host had a chance to
+ * assign a placeholder) and a rejoin (a refresh or reconnect mid-match,
+ * where `name` is whatever was persisted alongside `playerId`). `playerId`
+ * is what actually lets the host recognize a rejoin: see Game.handleRename,
+ * which resends StartMatchMsg + a fresh StateSnapshot, targeted, the moment
+ * it sees a `playerId` matching an existing match slot.
+ */
 export interface RenameMsg {
   name: string;
+  playerId: PlayerId;
 }
 
 /**
@@ -88,6 +107,12 @@ export interface RenameMsg {
  * gets an identical answer), but *whether* it's been revealed needs to be
  * shared so every peer's board shows the same overlay, and clears its own
  * stale attempt trail, at the same moment.
+ *
+ * `connectedSlots[i]` is whether `players[i]`'s peer currently has a live
+ * connection to the host -- host-computed from its own live peerId<->
+ * PlayerId map (see Game.handleRename/handlePeerLeave), purely so every
+ * peer's UI can show a "reconnecting..." cue next to a dropped player
+ * instead of leaving their row looking identical to someone mid-turn.
  */
 export interface StateSnapshot {
   robots: RobotPositions;
@@ -102,4 +127,5 @@ export interface StateSnapshot {
   lastRoundWinnerIndex: number | null;
   bidCountdownMs: number | null;
   revealed: boolean;
+  connectedSlots: boolean[];
 }

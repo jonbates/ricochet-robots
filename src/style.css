@@ -38,6 +38,17 @@ body {
   @apply flex-1 min-w-0 md:min-h-0 flex flex-col;
 }
 
+/* A thin banner across the top of the board -- doesn't need to block
+   anything underneath, since the client's own input is already inert while
+   disconnected (canActNow requires a live host round-trip either way). */
+.reconnecting-banner {
+  @apply w-full py-1.5 text-center text-sm font-bold text-[#0a1a2a] bg-[#ffd21f];
+}
+
+.reconnecting-banner[hidden] {
+  @apply hidden;
+}
+
 /* A dedicated header strip above the board itself (not floating over it) --
    gives the target "spotlight" reveal a little breathing room instead of
    crowding the board's top edge. No fixed height (unlike #hud-bottom-strip,
@@ -216,8 +227,16 @@ body {
   @apply text-[#ffd21f];
 }
 
+.player-name-group {
+  @apply flex items-center gap-2;
+}
+
 .player-name {
   @apply text-[rgba(232,244,255,0.85)];
+}
+
+.player-reconnecting-tag {
+  @apply text-xs italic text-[rgba(255,210,31,0.85)];
 }
 
 .player-row-right {

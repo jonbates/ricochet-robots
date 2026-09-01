@@ -6,7 +6,7 @@ import type { Cell, Direction } from './board/Board';
 import { buildTargetIconCanvas } from './render/targetIcon2d';
 import type { NetworkRoom } from './net/room';
 import { generateRoomCode, normalizeCodeInput, toRoomId } from './net/roomCode';
-import type { LobbyPlayer, StartMatchMsg } from './net/protocol';
+import type { LobbyPlayer, StartMatchMsg, StateSnapshot } from './net/protocol';
 
 function required<T>(el: T | null, selector: string): T {
   if (!el) throw new Error(`Missing required DOM element: ${selector} -- check index.html`);
@@ -14,6 +14,11 @@ function required<T>(el: T | null, selector: string): T {
 }
 
 const container = required(document.querySelector<HTMLDivElement>('#board-area'), '#board-area');
+
+const reconnectingBanner = required(
+  document.querySelector<HTMLDivElement>('#reconnecting-banner'),
+  '#reconnecting-banner',
+);
 
 const hudTimer = required(document.querySelector<HTMLDivElement>('#hud-timer'), '#hud-timer');
 const hudTimerText = required(document.querySelector<HTMLSpanElement>('#hud-timer-text'), '#hud-timer-text');
@@ -146,10 +151,76 @@ let lastFocusedBidRow = 0;
 
 // -- Online lobby (Trystero, host-authoritative -- see src/net/) -----------
 
+// A stable identity for *this browser tab*, independent of Trystero's own
+// peerId (regenerated on every reconnect/refresh) -- this is what lets a
+// rejoining peer be recognized as the same player rather than a stranger
+// (see Game.handleRename). Deliberately sessionStorage-scoped: survives a
+// refresh (the main reason this exists), but not a fresh tab/window or a
+// browser restart, since this isn't meant to be a persistent account.
+const MY_PLAYER_ID_KEY = 'rr-my-player-id';
+const myPlayerId =
+  sessionStorage.getItem(MY_PLAYER_ID_KEY) ??
+  (() => {
+    const fresh = crypto.randomUUID();
+    sessionStorage.setItem(MY_PLAYER_ID_KEY, fresh);
+    return fresh;
+  })();
+
+// One persisted record for whatever room this tab is currently in, if any --
+// enough to silently restore into it on the next page load (a refresh, or
+// reopening a tab within the same browser session). Versioned like
+// net/room.ts's own APP_ID, so a stale record from a prior deploy with an
+// incompatible shape is just never read rather than crashing the restore.
+const SESSION_KEY = 'rr-session-v1';
+interface PersistedHostSession {
+  role: 'host';
+  roomCode: string;
+  startMsg: StartMatchMsg;
+  snapshot: StateSnapshot;
+}
+interface PersistedClientSession {
+  role: 'client';
+  roomCode: string;
+  name: string;
+}
+type PersistedSession = PersistedHostSession | PersistedClientSession;
+
+function readPersistedSession(): PersistedSession | null {
+  const raw = sessionStorage.getItem(SESSION_KEY);
+  if (!raw) return null;
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    if (
+      typeof parsed === 'object' &&
+      parsed !== null &&
+      'role' in parsed &&
+      (parsed.role === 'host' || parsed.role === 'client') &&
+      'roomCode' in parsed &&
+      typeof parsed.roomCode === 'string'
+    ) {
+      return parsed as PersistedSession;
+    }
+  } catch {
+    // Malformed/incompatible record -- treat exactly like "nothing persisted".
+  }
+  return null;
+}
+
+function clearPersistedSession(): void {
+  sessionStorage.removeItem(SESSION_KEY);
+}
+
 let room: NetworkRoom | null = null;
 let myRole: 'host' | 'client' | null = null;
 let lobbyVariantId: BoardVariantId = 'classic';
 let lobbyPlayers: LobbyPlayer[] = [];
+let currentRoomCode: string | null = null;
+// Lets a rejoining client's startMatch.onMessage tell "I already have this
+// exact match live" (a same-tab reconnect blip) apart from a genuine
+// refresh, so a blip doesn't visibly tear down and rebuild the WebGL
+// renderer -- the state broadcast that immediately follows resyncs the
+// still-live Game on its own.
+let currentMatchId: string | null = null;
 
 function generateSelfName(): string {
   return `Player ${Math.floor(1000 + Math.random() * 9000)}`;
@@ -166,6 +237,28 @@ function leaveRoom(): void {
   room = null;
   myRole = null;
   lobbyPlayers = [];
+  currentRoomCode = null;
+  currentMatchId = null;
+  clearPersistedSession();
+}
+
+/**
+ * Host-only: bound (with `startMsg` already captured -- see call sites) as
+ * Game's onSnapshot callback, fired at the end of every broadcastState() --
+ * persists enough to fully restore this exact match (see
+ * restoreHostSession) on this tab's next load. `startMsg` is passed in
+ * directly, captured at the call site, rather than read back off `game` --
+ * the constructor's own *first* broadcastState() call fires synchronously
+ * from inside `new Game(...)`, before main.ts's own `game` variable has
+ * been assigned the constructor's return value, so relying on that
+ * module-level variable here would silently drop exactly that first
+ * snapshot (leaving nothing to restore if the host refreshes in the brief
+ * window before the next real mutation or heartbeat).
+ */
+function persistHostSession(startMsg: StartMatchMsg, snapshot: StateSnapshot): void {
+  if (!currentRoomCode) return;
+  const record: PersistedHostSession = { role: 'host', roomCode: currentRoomCode, startMsg, snapshot };
+  sessionStorage.setItem(SESSION_KEY, JSON.stringify(record));
 }
 
 function broadcastRoster(): void {
@@ -212,16 +305,17 @@ function renderLobbyBoardSelected(): void {
   }
 }
 
-async function hostRoom(): Promise<void> {
-  leaveRoom();
-  const code = generateRoomCode();
-  const { NetworkRoom } = await import('./net/room');
-  const newRoom = new NetworkRoom(toRoomId(code));
-  room = newRoom;
-  myRole = 'host';
-  lobbyVariantId = 'classic';
-  lobbyPlayers = [{ peerId: newRoom.selfId, name: lobbyNameInput.value.trim() || generateSelfName(), isHost: true }];
-
+/**
+ * Wires the host's three room-lifetime peer-lifecycle listeners --
+ * NetworkRoom's onPeerJoin/onPeerLeave/rename.onMessage are single-slot
+ * callback properties, not multi-listener emitters, so exactly one place in
+ * the app can own them; main.ts does, for the room's *entire* lifetime
+ * (lobby and match alike), forwarding into game?.handleRename/
+ * handlePeerLeave once a match is live. Shared by hostRoom() (a fresh room)
+ * and restoreHostSession() (a host restoring an in-progress match after its
+ * own refresh) so both wire up identically.
+ */
+function wireHostPeerHandlers(newRoom: NetworkRoom): void {
   newRoom.onPeerJoin((peerId) => {
     // A placeholder -- the joining peer sends its own chosen name (see
     // joinRoomWithCode) as soon as its connection to us is ready, via the
@@ -229,7 +323,7 @@ async function hostRoom(): Promise<void> {
     // because the two events race: this "someone connected" notification
     // and the guest's own rename message can arrive in either order.
     if (!lobbyPlayers.some((p) => p.peerId === peerId)) {
-      lobbyPlayers.push({ peerId, name: `Guest ${lobbyPlayers.length + 1}`, isHost: false });
+      lobbyPlayers.push({ peerId, playerId: peerId, name: `Guest ${lobbyPlayers.length + 1}`, isHost: false });
     }
     broadcastRoster();
     renderRoster();
@@ -238,16 +332,42 @@ async function hostRoom(): Promise<void> {
     lobbyPlayers = lobbyPlayers.filter((p) => p.peerId !== peerId);
     broadcastRoster();
     renderRoster();
+    game?.handlePeerLeave(peerId);
   });
   newRoom.rename.onMessage = (msg, ctx) => {
     const name = msg.name.trim();
-    if (!name) return;
-    const existing = lobbyPlayers.find((p) => p.peerId === ctx.peerId);
-    if (existing) existing.name = name;
-    else lobbyPlayers.push({ peerId: ctx.peerId, name, isHost: false });
-    broadcastRoster();
-    renderRoster();
+    if (name) {
+      const existing = lobbyPlayers.find((p) => p.peerId === ctx.peerId);
+      if (existing) {
+        existing.name = name;
+        existing.playerId = msg.playerId;
+      } else {
+        lobbyPlayers.push({ peerId: ctx.peerId, playerId: msg.playerId, name, isHost: false });
+      }
+      broadcastRoster();
+      renderRoster();
+    }
+    // Forwarded unconditionally (even for an empty/whitespace name, and
+    // regardless of whether a match is even live yet -- a no-op via `game?.`
+    // in that case) -- this is also how the host recognizes a *rejoin*, see
+    // Game.handleRename's own doc comment.
+    game?.handleRename(ctx.peerId, msg.playerId);
   };
+}
+
+async function hostRoom(): Promise<void> {
+  leaveRoom();
+  const code = generateRoomCode();
+  const { NetworkRoom } = await import('./net/room');
+  const newRoom = new NetworkRoom(toRoomId(code));
+  room = newRoom;
+  myRole = 'host';
+  currentRoomCode = code;
+  lobbyVariantId = 'classic';
+  lobbyPlayers = [
+    { peerId: newRoom.selfId, playerId: myPlayerId, name: lobbyNameInput.value.trim() || generateSelfName(), isHost: true },
+  ];
+  wireHostPeerHandlers(newRoom);
 
   lobbyRoomCodeValue.textContent = code;
   lobbyBoardSelect.hidden = false;
@@ -273,6 +393,7 @@ async function joinRoomWithCode(rawCode: string): Promise<void> {
   const newRoom = new NetworkRoom(toRoomId(code));
   room = newRoom;
   myRole = 'client';
+  currentRoomCode = code;
 
   newRoom.roster.onMessage = (msg) => {
     lobbyPlayers = msg.players;
@@ -281,13 +402,30 @@ async function joinRoomWithCode(rawCode: string): Promise<void> {
     renderRoster();
     renderLobbyBoardReadonly();
   };
-  newRoom.startMatch.onMessage = (msg) => beginMultiplayerMatch(msg);
-  // Send our own chosen name the moment the host's connection is actually
-  // ready (rather than right away, before any peer connection exists yet,
-  // which Trystero would just silently drop) -- the host has only one peer
-  // to wait for here, so this fires exactly once.
+  newRoom.startMatch.onMessage = (msg) => {
+    // Already have this exact match live -- a same-tab reconnect blip, not a
+    // real refresh (which would have wiped `game`/`currentMatchId` too).
+    // Skip the rebuild; the state broadcast that immediately follows this
+    // (see Game.handleRename) resyncs the still-live Game on its own, with
+    // no visible dispose/reconstruct flash.
+    if (msg.matchId === currentMatchId && game) return;
+    beginMultiplayerMatch(msg);
+  };
+  newRoom.onPeerLeave((peerId) => {
+    game?.handlePeerLeave(peerId);
+  });
+  // Send our own chosen name (and stable identity) the moment the host's
+  // connection is actually ready (rather than right away, before any peer
+  // connection exists yet, which Trystero would just silently drop) -- the
+  // host has only one peer to wait for here, so this fires exactly once per
+  // connection. Also persists this tab's session so a refresh can restore
+  // it, and (via `playerId`) is what lets the host recognize this as a
+  // *rejoin* if it happens to be one -- see Game.handleRename.
   newRoom.onPeerJoin(() => {
-    void newRoom.rename.send({ name: lobbyNameInput.value.trim() || generateSelfName() });
+    const name = lobbyNameInput.value.trim() || generateSelfName();
+    const record: PersistedClientSession = { role: 'client', roomCode: code, name };
+    sessionStorage.setItem(SESSION_KEY, JSON.stringify(record));
+    void newRoom.rename.send({ name, playerId: myPlayerId });
   });
 
   lobbyRoomCodeValue.textContent = code;
@@ -313,21 +451,31 @@ function startMultiplayerMatch(): void {
     variantId: lobbyVariantId,
     quadrantAssignment,
     searchDepth: currentSearchDepth(),
-    playerOrder: lobbyPlayers.map((p) => p.peerId),
+    playerOrder: lobbyPlayers.map((p) => p.playerId),
     playerNames: lobbyPlayers.map((p) => p.name),
     initialRobots,
     firstTarget,
+    matchId: crypto.randomUUID(),
   };
+  const initialPeerMap = new Map(lobbyPlayers.map((p) => [p.peerId, p.playerId]));
   room.startMatch.send(msg);
-  beginMultiplayerMatch(msg);
+  beginMultiplayerMatch(msg, initialPeerMap);
 }
 
-function beginMultiplayerMatch(msg: StartMatchMsg): void {
+function beginMultiplayerMatch(msg: StartMatchMsg, initialPeerMap?: ReadonlyMap<string, string>): void {
   if (!room || !myRole) return;
-  const mySlot = msg.playerOrder.indexOf(room.selfId);
-  const net: NetworkContext = { role: myRole, room, playerOrder: msg.playerOrder, mySlot: mySlot === -1 ? null : mySlot };
+  const mySlot = msg.playerOrder.indexOf(myPlayerId);
+  const net: NetworkContext = {
+    role: myRole,
+    room,
+    playerOrder: msg.playerOrder,
+    mySlot: mySlot === -1 ? null : mySlot,
+    myPlayerId,
+    matchId: msg.matchId,
+  };
 
   currentPlayerNames = msg.playerNames;
+  currentMatchId = msg.matchId;
   lobbyOverlay.classList.remove('visible');
   startOverlay.classList.remove('visible');
   game?.dispose();
@@ -336,12 +484,87 @@ function beginMultiplayerMatch(msg: StartMatchMsg): void {
     container,
     msg.variantId,
     msg.playerNames,
-    { onUpdate: handleUpdate, onMatchOver: handleMatchOver },
+    {
+      onUpdate: handleUpdate,
+      onMatchOver: handleMatchOver,
+      onSnapshot: myRole === 'host' ? (snapshot) => persistHostSession(msg, snapshot) : undefined,
+    },
     msg.searchDepth,
     net,
     { quadrantAssignment: msg.quadrantAssignment, initialRobots: msg.initialRobots, firstTarget: msg.firstTarget },
+    myRole === 'host' ? initialPeerMap : undefined,
   );
   game.start();
+}
+
+/**
+ * Host-only: reconstructs an in-progress match from a persisted session (see
+ * persistHostSession) on this tab's next load after a refresh -- rejoins the
+ * same room, re-wires the same peer-lifecycle handlers a fresh hostRoom()
+ * would, and constructs Game directly from the persisted StartMatchMsg +
+ * StateSnapshot instead of starting a fresh round. lobbyPlayers is seeded
+ * with just the host's own entry (not a placeholder per remote player) --
+ * guests aren't reachable yet, and the lobby overlay is skipped entirely
+ * here anyway, so there's nothing for a placeholder entry to usefully
+ * display; each guest's own row repopulates itself the moment they
+ * reconnect and re-send their rename handshake, exactly as in a fresh lobby.
+ */
+async function restoreHostSession(record: PersistedHostSession): Promise<void> {
+  try {
+    const { NetworkRoom } = await import('./net/room');
+    const newRoom = new NetworkRoom(toRoomId(record.roomCode));
+    room = newRoom;
+    myRole = 'host';
+    currentRoomCode = record.roomCode;
+    currentMatchId = record.startMsg.matchId;
+    lobbyVariantId = record.startMsg.variantId;
+    const myIndex = record.startMsg.playerOrder.indexOf(myPlayerId);
+    lobbyPlayers = [
+      {
+        peerId: newRoom.selfId,
+        playerId: myPlayerId,
+        name: record.startMsg.playerNames[myIndex] ?? generateSelfName(),
+        isHost: true,
+      },
+    ];
+    wireHostPeerHandlers(newRoom);
+
+    const net: NetworkContext = {
+      role: 'host',
+      room: newRoom,
+      playerOrder: record.startMsg.playerOrder,
+      mySlot: myIndex === -1 ? null : myIndex,
+      myPlayerId,
+      matchId: record.startMsg.matchId,
+    };
+    currentPlayerNames = record.startMsg.playerNames;
+    startOverlay.classList.remove('visible');
+    lastPhase = null;
+    game = new Game(
+      container,
+      record.startMsg.variantId,
+      record.startMsg.playerNames,
+      {
+        onUpdate: handleUpdate,
+        onMatchOver: handleMatchOver,
+        onSnapshot: (snapshot) => persistHostSession(record.startMsg, snapshot),
+      },
+      record.startMsg.searchDepth,
+      net,
+      {
+        quadrantAssignment: record.startMsg.quadrantAssignment,
+        initialRobots: record.startMsg.initialRobots,
+        firstTarget: record.startMsg.firstTarget,
+      },
+      new Map([[newRoom.selfId, myPlayerId]]),
+      record.snapshot,
+    );
+    game.start();
+  } catch (err) {
+    console.error('Failed to restore host session', err);
+    clearPersistedSession();
+    startOverlay.classList.add('visible');
+  }
 }
 
 function backToStartOverlay(): void {
@@ -379,6 +602,7 @@ let playerRowEls: {
   bidValue: HTMLSpanElement;
   bidInput: HTMLInputElement;
   bidBtn: HTMLButtonElement;
+  reconnectingTag: HTMLSpanElement;
 }[] = [];
 
 function buildPlayerRows(players: readonly Player[]): void {
@@ -387,9 +611,26 @@ function buildPlayerRows(players: readonly Player[]): void {
     const row = document.createElement('div');
     row.className = 'player-row';
 
+    // Grouped together (rather than appended as a third sibling of `right`
+    // below) so the row's own justify-between still only ever balances two
+    // items -- name+tag on the left, bid controls/score on the right --
+    // regardless of whether the tag is currently shown.
+    const nameGroup = document.createElement('div');
+    nameGroup.className = 'player-name-group';
+
     const name = document.createElement('span');
     name.className = 'player-name';
     name.textContent = player.name;
+
+    // Shown only while this row's peer has no live connection to the host
+    // (see connectedSlots/handlePeerLeave) -- hidden the rest of the time,
+    // including for local hot-seat play, where connectedSlots is always [].
+    const reconnectingTag = document.createElement('span');
+    reconnectingTag.className = 'player-reconnecting-tag';
+    reconnectingTag.textContent = 'reconnecting…';
+    reconnectingTag.hidden = true;
+
+    nameGroup.append(name, reconnectingTag);
 
     const right = document.createElement('div');
     right.className = 'player-row-right';
@@ -433,9 +674,9 @@ function buildPlayerRows(players: readonly Player[]): void {
     scoreEl.className = 'player-score';
 
     right.append(bidValue, bidInput, bidBtn, scoreEl);
-    row.append(name, right);
+    row.append(nameGroup, right);
     hudPlayers.appendChild(row);
-    return { row, scoreEl, bidValue, bidInput, bidBtn };
+    return { row, scoreEl, bidValue, bidInput, bidBtn, reconnectingTag };
   });
 }
 
@@ -448,6 +689,10 @@ function renderPlayers(info: UpdateInfo): void {
     const els = playerRowEls[i];
     els.scoreEl.textContent = String(player.score);
     els.row.classList.toggle('active-bidder', info.activeBidPlayerIndex === i);
+    // connectedSlots[i] is only ever explicitly `false` for a known-disconnected
+    // networked player -- `undefined` (local play, connectedSlots is always [])
+    // and `true` both mean "don't show this".
+    els.reconnectingTag.hidden = info.connectedSlots[i] !== false;
     const bid = info.bids.find((b: Bid) => b.playerIndex === i);
     els.bidValue.textContent = bid ? `bid ${bid.moves}` : '';
     // In a networked match, only my own row's bid controls are usable -- I can't bid on another connected player's behalf. Local hot-seat play (mySlot === null) keeps every row's controls, since it's one shared keyboard.
@@ -568,6 +813,7 @@ function handleUpdate(info: UpdateInfo): void {
   hudAttemptStatus.hidden = info.phase !== 'attempting';
   hudGiveUp.hidden = info.phase === 'resolved';
   roundResultPanel.hidden = info.phase !== 'resolved';
+  reconnectingBanner.hidden = info.hostConnected;
 
   renderPlayers(info);
   renderTarget(info);
@@ -707,11 +953,28 @@ for (const btn of lobbyBoardButtons) {
   });
 }
 
-// Opening a shared link (?room=CODE) drops straight into the join flow.
+// Opening a shared link (?room=CODE) drops straight into the join flow --
+// takes priority over a silently-restored session below, since it's an
+// explicit action just taken (e.g. clicking a fresh invite link in a new
+// tab that happens to share this browser's session storage).
 const urlRoomCode = new URLSearchParams(window.location.search).get('room');
 if (urlRoomCode) {
   lobbyJoinCodeInput.value = urlRoomCode;
   startOverlay.classList.remove('visible');
   lobbyOverlay.classList.add('visible');
   joinRoomWithCode(urlRoomCode);
+} else {
+  // Otherwise, silently restore whatever room/match this tab was in before
+  // its last refresh, if any (see leaveRoom()/persistHostSession() for where
+  // this gets written and cleared).
+  const restored = readPersistedSession();
+  if (restored?.role === 'host') {
+    startOverlay.classList.remove('visible');
+    restoreHostSession(restored);
+  } else if (restored?.role === 'client') {
+    lobbyNameInput.value = restored.name;
+    startOverlay.classList.remove('visible');
+    lobbyOverlay.classList.add('visible');
+    joinRoomWithCode(restored.roomCode);
+  }
 }

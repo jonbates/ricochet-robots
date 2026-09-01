@@ -5,7 +5,7 @@ import { type Bid, GameState, type Player, type RobotPositions, type RoundPhase 
 import { solve, type SolveResult } from './ai/Solver';
 import { BoardRenderer } from './render/BoardRenderer';
 import type { NetworkRoom } from './net/room';
-import type { ActionMsg, StateSnapshot } from './net/protocol';
+import type { ActionMsg, StartMatchMsg, StateSnapshot } from './net/protocol';
 
 export const WIN_SCORE = 5;
 
@@ -24,18 +24,30 @@ export type NetRole = 'local' | 'host' | 'client';
  * action requests; 'client' never mutates GameState from local input at all
  * -- it only ever applies whatever the host's snapshots say, and forwards
  * local input as action requests instead of touching GameState itself.
- * `playerOrder[i]` is the peer controlling `players[i]` (host's own selfId
- * included, like any other peer); `mySlot` is this instance's own index
- * into it (null for `local`).
+ * `playerOrder[i]` is the stable PlayerId (see main.ts's myPlayerId --
+ * survives a refresh, unlike Trystero's own ephemeral peerId) controlling
+ * `players[i]`; `mySlot` is this instance's own index into it (null for
+ * `local`). `myPlayerId`/`matchId` are only meaningful for 'host'/'client'
+ * roles -- see handleRename()'s doc comment for how they're used to
+ * recognize a peer rejoining after a refresh or dropped connection.
  */
 export interface NetworkContext {
   role: NetRole;
   room: NetworkRoom | null;
   playerOrder: readonly string[];
   mySlot: number | null;
+  myPlayerId: string;
+  matchId: string;
 }
 
-export const LOCAL_NETWORK_CONTEXT: NetworkContext = { role: 'local', room: null, playerOrder: [], mySlot: null };
+export const LOCAL_NETWORK_CONTEXT: NetworkContext = {
+  role: 'local',
+  room: null,
+  playerOrder: [],
+  mySlot: null,
+  myPlayerId: '',
+  matchId: '',
+};
 
 /**
  * Everything the host resolves once and transmits (via StartMatchMsg) so
@@ -69,11 +81,17 @@ export interface UpdateInfo {
   blockedByRicochetRule: boolean;
   /** This instance's own player index in a networked match; null in local hot-seat play. */
   mySlot: number | null;
+  /** connectedSlots[i] is whether players[i]'s peer currently has a live connection to the host -- [] for local play. Lets the UI show a "reconnecting..." cue instead of leaving a dropped player's row looking identical to one just waiting their turn. */
+  connectedSlots: readonly boolean[];
+  /** Client-role only (always true otherwise): whether this peer currently has a live connection to the host. */
+  hostConnected: boolean;
 }
 
 export interface GameCallbacks {
   onUpdate: (info: UpdateInfo) => void;
   onMatchOver: (winner: Player) => void;
+  /** Host-role only: fired at the end of every broadcastState(), so main.ts can persist the live match to sessionStorage (see restoreHostSession) without Game knowing anything about storage. */
+  onSnapshot?: (snapshot: StateSnapshot) => void;
 }
 
 const KEY_TO_DIRECTION: Record<string, Direction> = {
@@ -94,6 +112,15 @@ export class Game {
   private readonly resizeObserver: ResizeObserver;
   private readonly searchDepth: number;
   private readonly net: NetworkContext;
+  private readonly variantId: BoardVariantId;
+  private readonly playerNames: readonly string[];
+  private readonly initialMatchStart: MatchStart | null;
+  /** Host-role only: the live mapping from a currently-connected peer's ephemeral Trystero peerId to their stable PlayerId, rebuilt on every (re)connect via handleRename(). Used to resolve who actually sent an incoming ActionMsg, since playerOrder itself is keyed by PlayerId, not peerId. */
+  private readonly peerIdToPlayerId = new Map<string, string>();
+  private connectedSlots: readonly boolean[] = [];
+  /** Client-role only: the host's current peerId, and whether that connection is currently live -- set from state.onMessage's own ctx.peerId and handlePeerLeave(). */
+  private hostPeerId: string | null = null;
+  private hostConnected = true;
   private state: GameState;
   private running = false;
   private rafId = 0;
@@ -112,11 +139,19 @@ export class Game {
     searchDepth: number = DEFAULT_SEARCH_DEPTH,
     net: NetworkContext = LOCAL_NETWORK_CONTEXT,
     matchStart?: MatchStart,
+    initialPeerMap?: ReadonlyMap<string, string>,
+    resumeSnapshot?: StateSnapshot,
   ) {
     this.container = container;
     this.callbacks = callbacks;
     this.searchDepth = searchDepth;
     this.net = net;
+    this.variantId = variantId;
+    this.playerNames = playerNames;
+    this.initialMatchStart = matchStart ?? null;
+    if (net.role === 'host' && initialPeerMap) {
+      for (const [peerId, playerId] of initialPeerMap) this.peerIdToPlayerId.set(peerId, playerId);
+    }
     const variant = buildBoardVariant(variantId, matchStart?.quadrantAssignment);
     this.board = new Board(variant.wallSegments, variant.deflectors);
     this.targets = variant.targets;
@@ -161,13 +196,33 @@ export class Game {
     // resize. Force a resync the moment it comes back.
     document.addEventListener('visibilitychange', this.handleVisibilityChange);
     this.handleResize();
+    this.recomputeConnectedSlots();
+
+    if (resumeSnapshot) {
+      // Host-restore only (see main.ts's restoreHostSession): re-apply the
+      // last known mid-match state onto the fresh GameState this constructor
+      // just built from scratch. applySnapshot never touches bidDeadline --
+      // correct for an ordinary client, which never calls tick() itself --
+      // but a *restoring host* does call tick() every frame, so its deadline
+      // must be recomputed against this fresh page load's own
+      // performance.now() origin or the bidding countdown would freeze
+      // forever.
+      this.applySnapshot(resumeSnapshot);
+      if (this.state.phase === 'bidding' && resumeSnapshot.bidCountdownMs !== null) {
+        this.state.bidDeadline = performance.now() + resumeSnapshot.bidCountdownMs;
+      }
+    }
 
     if (this.net.room) {
       if (this.net.role === 'host') {
         this.net.room.action.onMessage = (msg, ctx) => this.handleIncomingAction(msg, ctx.peerId);
         this.broadcastState(); // an immediate first snapshot, even though every peer's initial GameState is already provably identical from `matchStart` -- cheap belt-and-suspenders
       } else if (this.net.role === 'client') {
-        this.net.room.state.onMessage = (snapshot) => this.applySnapshot(snapshot);
+        this.net.room.state.onMessage = (snapshot, ctx) => {
+          this.hostPeerId = ctx.peerId;
+          this.hostConnected = true;
+          this.applySnapshot(snapshot);
+        };
       }
     }
   }
@@ -519,17 +574,20 @@ export class Game {
 
   /**
    * Host-only: applies an action request from a connected client. The
-   * sender's playerIndex is resolved from playerOrder (matched against the
-   * peerId Trystero attaches to the incoming message), never trusted from
-   * the message itself, so a client can't spoof another player's slot.
-   * move/select/deselect/undo/concede are further gated to "is it actually
-   * this sender's turn" -- placeBid/endCountdownEarly/giveUpRound/
-   * continueToNextRound/playAgain/revealSolution are open to any connected
-   * player, matching the same "anyone at the shared keyboard" spirit local
-   * hot-seat play has for those actions.
+   * sender's playerIndex is resolved by first mapping their (ephemeral)
+   * peerId to a (stable) PlayerId via peerIdToPlayerId -- populated by
+   * handleRename() as peers (re)connect -- then looking that PlayerId up in
+   * playerOrder. Never trusted from the message itself, so a client can't
+   * spoof another player's slot. move/select/deselect/undo/concede are
+   * further gated to "is it actually this sender's turn" --
+   * placeBid/endCountdownEarly/giveUpRound/continueToNextRound/playAgain/
+   * revealSolution are open to any connected player, matching the same
+   * "anyone at the shared keyboard" spirit local hot-seat play has for those
+   * actions.
    */
   private handleIncomingAction(msg: ActionMsg, peerId: string): void {
-    const senderIndex = this.net.playerOrder.indexOf(peerId);
+    const playerId = this.peerIdToPlayerId.get(peerId);
+    const senderIndex = playerId === undefined ? -1 : this.net.playerOrder.indexOf(playerId);
     if (senderIndex === -1) return; // not a recognized player in this match
     const isSendersTurn = this.state.activeBid?.playerIndex === senderIndex;
 
@@ -593,6 +651,65 @@ export class Game {
     }
   }
 
+  /** Host-only: reconstructs the StartMatchMsg equivalent to what main.ts originally sent to start this match -- used both to resend it (targeted) to a rejoining peer in handleRename(), and by main.ts to persist enough to restore this exact match on a host refresh. Null if this instance was never given a MatchStart (local hot-seat play). */
+  matchStartMsg(): StartMatchMsg | null {
+    if (!this.initialMatchStart) return null;
+    return {
+      variantId: this.variantId,
+      quadrantAssignment: this.initialMatchStart.quadrantAssignment,
+      searchDepth: this.searchDepth,
+      playerOrder: [...this.net.playerOrder],
+      playerNames: [...this.playerNames],
+      initialRobots: this.initialMatchStart.initialRobots,
+      firstTarget: this.initialMatchStart.firstTarget,
+      matchId: this.net.matchId,
+    };
+  }
+
+  /**
+   * Host-only: called by main.ts's persistent (whole-room-lifetime)
+   * `rename.onMessage` handler whenever any peer (re)sends its handshake --
+   * both a brand-new join and a peer rejoining after a refresh or dropped
+   * connection look identical from here, since both send the same message.
+   * Updates the live peerId<->PlayerId mapping for this sender; if their
+   * PlayerId matches an existing slot in playerOrder, this *is* a rejoin --
+   * resend them the original StartMatchMsg (targeted, so no one else's
+   * Game/WebGL renderer gets rebuilt) so they can reconstruct an identical
+   * Board/GameState from scratch, followed by a fresh StateSnapshot so they
+   * catch up to the current mid-match state. A PlayerId that doesn't match
+   * any slot (a stray peer, a stale link) is silently ignored beyond the map
+   * update -- no crash, no roster/slot corruption, they just never receive a
+   * start/state message and stay inert.
+   */
+  handleRename(peerId: string, playerId: string): void {
+    if (this.net.role !== 'host' || !this.net.room) return;
+    this.peerIdToPlayerId.set(peerId, playerId);
+    this.recomputeConnectedSlots();
+    if (this.net.playerOrder.indexOf(playerId) === -1) return;
+    const startMsg = this.matchStartMsg();
+    if (startMsg) void this.net.room.startMatch.send(startMsg, { target: peerId });
+    this.broadcastState(); // untargeted -- reaches the rejoiner (already connected) too, and refreshes connectedSlots for everyone else
+  }
+
+  /** Called by main.ts's persistent `onPeerLeave` handler, for both roles. */
+  handlePeerLeave(peerId: string): void {
+    if (this.net.role === 'host') {
+      if (!this.peerIdToPlayerId.has(peerId)) return;
+      this.peerIdToPlayerId.delete(peerId);
+      this.recomputeConnectedSlots();
+      this.broadcastState();
+    } else if (this.net.role === 'client' && peerId === this.hostPeerId) {
+      this.hostConnected = false;
+    }
+  }
+
+  /** Host-only: recomputes connectedSlots from the live peerIdToPlayerId map -- the host's own slot is always connected (it's not reachable via a peer connection to itself). */
+  private recomputeConnectedSlots(): void {
+    if (this.net.role !== 'host') return;
+    const liveIds = new Set(this.peerIdToPlayerId.values());
+    this.connectedSlots = this.net.playerOrder.map((playerId) => playerId === this.net.myPlayerId || liveIds.has(playerId));
+  }
+
   /** Host-only: broadcasts the entire current GameState. A no-op for 'local'/'client' roles -- called unconditionally from every mutation site above rather than guarding each call site individually. */
   private broadcastState(): void {
     if (this.net.role !== 'host' || !this.net.room) return;
@@ -610,8 +727,10 @@ export class Game {
       lastRoundWinnerIndex: this.state.lastRoundWinnerIndex,
       bidCountdownMs,
       revealed: this.revealed,
+      connectedSlots: [...this.connectedSlots],
     };
     void this.net.room.state.send(snapshot);
+    this.callbacks.onSnapshot?.(snapshot);
   }
 
   /**
@@ -659,6 +778,11 @@ export class Game {
     this.state.lastRoundWinnerIndex = snapshot.lastRoundWinnerIndex;
     this.lastBidCountdownMs = snapshot.bidCountdownMs;
     this.revealed = snapshot.revealed;
+    // Client-role only -- the host computes connectedSlots itself, live, via
+    // recomputeConnectedSlots(); applying a snapshot's copy there (as
+    // happens once, host-side, restoring from a persisted resumeSnapshot)
+    // would overwrite an already-fresh value with a stale persisted one.
+    if (this.net.role !== 'host') this.connectedSlots = snapshot.connectedSlots;
     if (targetChanged) this.boardRenderer.setTarget(this.state.target);
     this.syncRobots();
     if (revealedChanged) {
@@ -702,6 +826,8 @@ export class Game {
       roundWinnerName,
       blockedByRicochetRule: this.state.blockedByRicochetRule,
       mySlot: this.net.mySlot,
+      connectedSlots: this.connectedSlots,
+      hostConnected: this.net.role === 'client' ? this.hostConnected : true,
     });
   }
 }
