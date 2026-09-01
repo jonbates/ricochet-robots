@@ -306,28 +306,33 @@ function renderLobbyBoardSelected(): void {
 }
 
 /**
- * Wires the host's three room-lifetime peer-lifecycle listeners --
- * NetworkRoom's onPeerJoin/onPeerLeave/rename.onMessage are single-slot
- * callback properties, not multi-listener emitters, so exactly one place in
- * the app can own them; main.ts does, for the room's *entire* lifetime
- * (lobby and match alike), forwarding into game?.handleRename/
+ * Wires the host's room-lifetime peer-lifecycle listeners -- NetworkRoom's
+ * onPeerLeave/rename.onMessage (and onPeerJoin, unused here, see below) are
+ * single-slot callback properties, not multi-listener emitters, so exactly
+ * one place in the app can own them; main.ts does, for the room's *entire*
+ * lifetime (lobby and match alike), forwarding into game?.handleRename/
  * handlePeerLeave once a match is live. Shared by hostRoom() (a fresh room)
  * and restoreHostSession() (a host restoring an in-progress match after its
  * own refresh) so both wire up identically.
  */
 function wireHostPeerHandlers(newRoom: NetworkRoom): void {
-  newRoom.onPeerJoin((peerId) => {
-    // A placeholder -- the joining peer sends its own chosen name (see
-    // joinRoomWithCode) as soon as its connection to us is ready, via the
-    // `rename` handler below. Guarded against a peer that's already present
-    // because the two events race: this "someone connected" notification
-    // and the guest's own rename message can arrive in either order.
-    if (!lobbyPlayers.some((p) => p.peerId === peerId)) {
-      lobbyPlayers.push({ peerId, playerId: peerId, name: `Guest ${lobbyPlayers.length + 1}`, isHost: false });
-    }
-    broadcastRoster();
-    renderRoster();
-  });
+  // Deliberately no onPeerJoin listener here -- a joining peer isn't added
+  // to lobbyPlayers (and so can't count toward "2+ players, Start is
+  // enabled") until their `rename` handshake actually arrives below and we
+  // know their real, stable PlayerId. An earlier version added a `Guest N`
+  // placeholder entry (keyed by the peer's own ephemeral peerId in place of
+  // a real PlayerId) as soon as the connection existed, racing the rename
+  // message that would correct it -- if the host clicked Start in that
+  // window, that placeholder got baked permanently into StartMatchMsg's
+  // playerOrder for the match's entire lifetime. Every action from that
+  // player was then silently dropped (handleIncomingAction's
+  // playerOrder.indexOf(realPlayerId) never matched the stale placeholder),
+  // and their own later rejoin attempts failed identically (Game.handleRename
+  // hit the same indexOf mismatch and never resent them a start/state
+  // message) -- i.e. exactly "the second bidder's bids aren't synced" and
+  // "I can't rejoin" from the same root cause. Waiting for rename closes
+  // that race at the source: lobbyPlayers can now only ever contain a real,
+  // rename-confirmed PlayerId.
   newRoom.onPeerLeave((peerId) => {
     lobbyPlayers = lobbyPlayers.filter((p) => p.peerId !== peerId);
     broadcastRoster();

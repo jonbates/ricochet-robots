@@ -82,7 +82,16 @@ const SOLUTION_ARROW_WIDTH = 0.22;
 const SOLUTION_JITTER_STEP = 0.07; // sideways offset per move, so overlapping moves (a later one retracing an earlier one's cells) run side by side instead of exactly on top of each other
 const SOLUTION_JITTER_CYCLE = 5; // offsets cycle through a small +/- range rather than drifting further apart with every extra move in a long solution
 const TRAIL_LABEL_RADIUS = 0.32;
-const TRAIL_LABEL_Y = 0.095; // just above the dash/arrow layer, so the number badge always draws on top
+// Above ROBOT_HEIGHT (0.4), not just the dash/arrow layer -- a revealed
+// solution's first move for any given robot starts from that robot's real,
+// not-yet-"moved" board position, so its number badge lands directly under
+// the robot's own opaque cylinder body. From this straight-down camera,
+// anything below the robot's flat top face at y=ROBOT_HEIGHT is fully
+// hidden, not just visually layered under it -- every subsequent move for
+// that same robot is fine (its simulated position has diverged from the
+// real one by then), but the very first one for each robot in the solution
+// needs to clear the robot's own height to ever be visible at all.
+const TRAIL_LABEL_Y = 0.41;
 
 /** A flat, unlit shape geometry for a target icon -- square/diamond/triangle come "for free" out of a low-segment CircleGeometry with a chosen starting angle; the star and the warp target's swirl need real outlines. Deliberately no smooth-circle icon shape -- that outline is reserved for robots (see buildRobots), so a target is never visually confused with one. */
 function buildIconGeometry(shape: TargetShape): BufferGeometry {
