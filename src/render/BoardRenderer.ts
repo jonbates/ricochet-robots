@@ -647,11 +647,11 @@ export class BoardRenderer {
     });
   }
 
-  /** The AI's revealed optimal solution -- unnumbered, since it's a single proposed sequence rather than moves already taken. */
+  /** The AI's revealed optimal solution -- numbered in move order, same as the live attempt trail, so a multi-move solution stays easy to read back (which robot moves 1st, 2nd, ...). */
   showSolutionPath(moves: readonly { color: RobotColor; path: readonly Cell[] }[]): void {
     this.clearSolutionPath();
     const group = new Group();
-    this.drawDashedMoves(group, moves, false);
+    this.drawDashedMoves(group, moves, true);
     this.scene.add(group);
     this.solutionPathGroup = group;
   }

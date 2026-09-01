@@ -306,7 +306,11 @@ body {
 }
 
 #reveal-solution-btn {
-  @apply mt-3;
+  @apply mt-3 w-full;
+}
+
+#give-up-btn {
+  @apply w-full;
 }
 
 .hud-continue-btn {
