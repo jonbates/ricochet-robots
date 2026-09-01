@@ -575,6 +575,11 @@ window.addEventListener('keydown', (e) => {
   if (document.activeElement instanceof HTMLInputElement && document.activeElement.classList.contains('player-bid-input')) return;
   const row = playerRowEls[lastInfo.mySlot ?? lastFocusedBidRow];
   if (!row || row.bidInput.hidden) return;
+  // Without this, focusing the input mid-handler (below) doesn't stop the
+  // browser's own default action for this same keystroke -- it still goes
+  // on to insert the digit into the now-focused field on top of the value
+  // set here, doubling it (a lone "7" becomes "77").
+  e.preventDefault();
   row.bidInput.focus(); // clears the field first, see its own 'focus' handler above
   row.bidInput.value = e.key;
 });
