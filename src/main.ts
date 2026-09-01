@@ -3,7 +3,7 @@ import { DEFAULT_SEARCH_DEPTH, Game, LOCAL_NETWORK_CONTEXT, type NetworkContext,
 import { buildBoardVariant, type BoardVariantId, randomInitialRobots, randomQuadrantAssignment, type Target } from './board/BoardLayout';
 import type { Bid, Player } from './game/GameState';
 import { BOARD_SIZE, type Cell, type Direction } from './board/Board';
-import { targetCssColor } from './colors';
+import { buildTargetIconCanvas } from './render/targetIcon2d';
 import { NetworkRoom } from './net/room';
 import { generateRoomCode, normalizeCodeInput, toRoomId } from './net/roomCode';
 import type { LobbyPlayer, StartMatchMsg } from './net/protocol';
@@ -438,8 +438,16 @@ function targetLabel(target: Target): string {
  * bidding is actually underway) -- same element throughout, so its content
  * only needs to be filled in once here rather than duplicated in two places.
  */
+let targetIconBuiltFor: Target | null = null;
+
 function renderTarget(info: UpdateInfo): void {
-  targetSwatch.style.background = targetCssColor(info.target.color);
+  // Same reference-equality trick as the player rows below -- info.target
+  // only actually changes once a round, so there's no need to redraw the
+  // canvas icon on every frame.
+  if (info.target !== targetIconBuiltFor) {
+    targetSwatch.replaceChildren(buildTargetIconCanvas(info.target, 40));
+    targetIconBuiltFor = info.target;
+  }
   targetColorName.textContent = targetLabel(info.target);
 
   const spotlight = info.phase === 'bidding' && info.bids.length === 0;

@@ -255,8 +255,15 @@ body {
   @apply flex items-center justify-start gap-2;
 }
 
+/* Holds the canvas-drawn target icon (see targetIcon2d.ts) -- that canvas
+   already draws its own circle/ring/shape, so this is just a sizing box for
+   it rather than a plain color swatch anymore. */
 .swatch {
-  @apply w-4 h-4 rounded-full border border-[rgba(255,255,255,0.4)] inline-block;
+  @apply w-6 h-6 inline-block;
+}
+
+.swatch canvas {
+  @apply block w-full h-full;
 }
 
 .hud-target-name {
@@ -279,6 +286,10 @@ body {
 
 .hud-target-spotlight .hud-target-swatch-row {
   @apply justify-center;
+}
+
+.hud-target-spotlight .swatch {
+  @apply w-10 h-10;
 }
 
 .hud-target-spotlight .hud-target-name {
