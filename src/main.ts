@@ -443,9 +443,17 @@ let targetIconBuiltFor: Target | null = null;
 function renderTarget(info: UpdateInfo): void {
   // Same reference-equality trick as the player rows below -- info.target
   // only actually changes once a round, so there's no need to redraw the
-  // canvas icon on every frame.
+  // canvas icon on every frame. Guarded by its own try/catch -- this icon
+  // is cosmetic, and every round swaps in a fresh target, so one bad
+  // draw shouldn't be able to wedge itself into permanently failing here
+  // (skipping past renderTimer/renderAttempting below it) every frame for
+  // the rest of the match.
   if (info.target !== targetIconBuiltFor) {
-    targetSwatch.replaceChildren(buildTargetIconCanvas(info.target, 40));
+    try {
+      targetSwatch.replaceChildren(buildTargetIconCanvas(info.target, 40));
+    } catch (err) {
+      console.error('Failed to draw target icon', err);
+    }
     targetIconBuiltFor = info.target;
   }
   targetColorName.textContent = targetLabel(info.target);
@@ -502,15 +510,20 @@ function renderResolved(info: UpdateInfo): void {
 }
 
 function handleUpdate(info: UpdateInfo): void {
-  renderPlayers(info);
-  renderTarget(info);
-  renderTimer(info);
-
+  // Phase-gated visibility first, before anything that renders actual
+  // content (player rows, the target icon, the timer) -- those are
+  // cosmetic and shouldn't be able to leave critical move-control UI (the
+  // D-pad, the attempting panel) stuck in a stale hidden/shown state just
+  // because something later in this function throws.
   hudAttempting.hidden = info.phase !== 'attempting';
   mobileDpad.hidden = info.phase !== 'attempting';
   hudAttemptStatus.hidden = info.phase !== 'attempting';
   hudGiveUp.hidden = info.phase === 'resolved';
   roundResultPanel.hidden = info.phase !== 'resolved';
+
+  renderPlayers(info);
+  renderTarget(info);
+  renderTimer(info);
   if (info.phase === 'attempting') renderAttempting(info);
 
   if (info.phase === 'resolved' && lastPhase !== 'resolved') {
