@@ -239,7 +239,7 @@ export class BoardRenderer {
 
   private readonly viewSize = BOARD_SIZE + 3; // grid extent plus a margin
 
-  /** What fraction of the container's height the board itself actually occupies on screen -- the camera's vertical extent is always exactly `viewSize` regardless of container shape, so this ratio (times the container's pixel height) is the board's rendered pixel width too, since applyAspect keeps a uniform (non-stretching) scale. Lets callers (the HUD) align themselves with the board's real footprint instead of the container's, now that applyAspect no longer centers the board within a wider container. */
+  /** What fraction of the container's height the board itself occupies on screen when the container is at least as wide as it is tall (aspect >= 1) -- the camera's vertical extent is exactly `viewSize` in that case, so this ratio (times the container's pixel height) is the board's rendered pixel width too, since applyAspect keeps a uniform (non-stretching) scale. Below aspect 1 (a narrow, stacked mobile container) the board's width is the *container's* full width instead -- see Game.ts's handleResize, which picks between the two. */
   readonly boardToViewRatio = BOARD_SIZE / this.viewSize;
   private readonly robotMeshes: Record<RobotColor, THREE.Mesh>;
   private readonly activeTargetHighlight: THREE.Mesh;
@@ -663,20 +663,35 @@ export class BoardRenderer {
   }
 
   /**
-   * A container wider than tall (the common case, once the left HUD sidebar
-   * takes a fixed width and the board gets whatever's left) shows extra
-   * horizontal world-space beyond the board's own square footprint -- this
-   * pins that extra space entirely to the right (left edge fixed at
-   * -viewSize/2) instead of splitting it evenly on both sides, so the board
-   * sits right up against its container's left edge (which is already just
-   * the 20px CSS margin away from the sidebar) rather than centered with a
-   * wide gap on the sidebar side.
+   * A container wider than tall (aspect >= 1 -- the desktop case, once the
+   * left HUD sidebar takes a fixed width and the board gets whatever's
+   * left) shows extra horizontal world-space beyond the board's own square
+   * footprint; this pins that extra space entirely to the right (left edge
+   * fixed at -viewSize/2) instead of splitting it evenly on both sides, so
+   * the board sits right up against its container's left edge rather than
+   * centered with a wide gap on the sidebar side.
+   *
+   * A container taller than wide (aspect < 1 -- stacked mobile, where the
+   * board's own width is the viewport's width but its height is whatever's
+   * left after the HUD strips) needs the opposite fix: showing the full
+   * `viewSize` vertically here would only show `viewSize * aspect` (< 19)
+   * horizontally, cropping real board cells off the right edge rather than
+   * just trimming empty margin. So below aspect 1, pin the full `viewSize`
+   * horizontally instead (top edge fixed at viewSize/2, matching the
+   * left-pinned top edge above) and let the extra vertical space fall below
+   * the board.
    */
   private applyAspect(aspect: number): void {
-    this.camera.left = -this.viewSize / 2;
-    this.camera.right = -this.viewSize / 2 + this.viewSize * aspect;
     this.camera.top = this.viewSize / 2;
-    this.camera.bottom = -this.viewSize / 2;
+    if (aspect >= 1) {
+      this.camera.left = -this.viewSize / 2;
+      this.camera.right = -this.viewSize / 2 + this.viewSize * aspect;
+      this.camera.bottom = -this.viewSize / 2;
+    } else {
+      this.camera.left = -this.viewSize / 2;
+      this.camera.right = this.viewSize / 2;
+      this.camera.bottom = this.viewSize / 2 - this.viewSize / aspect;
+    }
     this.camera.updateProjectionMatrix();
   }
 }

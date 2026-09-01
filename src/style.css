@@ -91,7 +91,47 @@ body {
      around the board (top/bottom strips, sidebar) read as part of the same
      control surface, not a separate section, so they sit right up against
      it rather than a full 20px gap away. */
-  @apply flex-1 min-h-0 m-1;
+  @apply flex-1 min-h-0 m-1 relative;
+}
+
+/* A floating touch D-pad overlaying the board's bottom-right corner --
+   arrow keys have no mobile equivalent, and the board itself is for
+   selecting a robot (tap), not sliding one. Visible only on narrow/mobile
+   viewports (a physical keyboard covers this on desktop, via the `md:hidden`
+   folded into this rule) and only while there's actually a move to make;
+   toggled via the `hidden` attribute in main.ts (info.phase !== 'attempting'),
+   which needs its own, more specific rule below to reliably win regardless
+   of viewport width -- same reasoning as #hud-timer[hidden] further down. */
+.mobile-dpad {
+  @apply absolute bottom-3 right-3 w-[132px] h-[132px] md:hidden;
+}
+
+.mobile-dpad[hidden] {
+  @apply hidden;
+}
+
+.dpad-btn {
+  @apply absolute w-11 h-11 flex items-center justify-center rounded-full bg-[rgba(10,20,30,0.75)] border border-[rgba(255,255,255,0.3)] text-[#e8f4ff] text-lg leading-none backdrop-blur-sm;
+}
+
+.dpad-btn:active {
+  @apply bg-[rgba(43,111,255,0.45)];
+}
+
+.dpad-up {
+  @apply top-0 left-1/2 -translate-x-1/2;
+}
+
+.dpad-down {
+  @apply bottom-0 left-1/2 -translate-x-1/2;
+}
+
+.dpad-left {
+  @apply left-0 top-1/2 -translate-y-1/2;
+}
+
+.dpad-right {
+  @apply right-0 top-1/2 -translate-y-1/2;
 }
 
 #board-area canvas {

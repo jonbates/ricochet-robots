@@ -2,7 +2,7 @@ import './style.css';
 import { DEFAULT_SEARCH_DEPTH, Game, LOCAL_NETWORK_CONTEXT, type NetworkContext, pickTarget, type UpdateInfo, WIN_SCORE } from './Game';
 import { buildBoardVariant, type BoardVariantId, randomInitialRobots, randomQuadrantAssignment, type Target } from './board/BoardLayout';
 import type { Bid, Player } from './game/GameState';
-import type { Cell } from './board/Board';
+import type { Cell, Direction } from './board/Board';
 import { targetCssColor } from './colors';
 import { NetworkRoom } from './net/room';
 import { generateRoomCode, normalizeCodeInput, toRoomId } from './net/roomCode';
@@ -42,6 +42,9 @@ const targetColorName = required(
 
 const hudGiveUp = required(document.querySelector<HTMLDivElement>('#hud-give-up'), '#hud-give-up');
 const giveUpBtn = required(document.querySelector<HTMLButtonElement>('#give-up-btn'), '#give-up-btn');
+
+const mobileDpad = required(document.querySelector<HTMLDivElement>('#mobile-dpad'), '#mobile-dpad');
+const dpadButtons = Array.from(document.querySelectorAll<HTMLButtonElement>('.dpad-btn'));
 
 const hudAttempting = required(document.querySelector<HTMLDivElement>('#hud-attempting'), '#hud-attempting');
 const attemptBanner = required(document.querySelector<HTMLParagraphElement>('#attempt-banner'), '#attempt-banner');
@@ -135,6 +138,11 @@ searchDepthInput.value = String(DEFAULT_SEARCH_DEPTH);
 let game: Game | null = null;
 let currentPlayerNames: string[] = [];
 let lastPhase: UpdateInfo['phase'] | null = null;
+let lastInfo: UpdateInfo | null = null;
+// Hot-seat default target for the digit-key quick-bid capture below when no
+// row's input has been focused yet this round -- online play doesn't need
+// this, since mySlot always resolves unambiguously to the local player's own row.
+let lastFocusedBidRow = 0;
 
 // -- Online lobby (Trystero, host-authoritative -- see src/net/) -----------
 
@@ -368,11 +376,13 @@ function buildPlayerRows(players: readonly Player[]): void {
     bidInput.step = '1';
     bidInput.value = '3';
     bidInput.className = 'player-bid-input';
-    // Focusing (via click or keyboard) clears the field instead of leaving
-    // the previous/default number selected -- so typing a fresh count never
-    // requires a manual select-all/backspace first.
+    // Focusing (via click, keyboard, or the digit-key quick-bid capture
+    // below) clears the field instead of leaving the previous/default
+    // number selected -- so typing a fresh count never requires a manual
+    // select-all/backspace first.
     bidInput.addEventListener('focus', () => {
       bidInput.value = '';
+      lastFocusedBidRow = i;
     });
 
     const bidBtn = document.createElement('button');
@@ -489,6 +499,7 @@ function handleUpdate(info: UpdateInfo): void {
   renderTimer(info);
 
   hudAttempting.hidden = info.phase !== 'attempting';
+  mobileDpad.hidden = info.phase !== 'attempting';
   hudAttemptStatus.hidden = info.phase !== 'attempting';
   hudGiveUp.hidden = info.phase === 'resolved';
   roundResultPanel.hidden = info.phase !== 'resolved';
@@ -503,6 +514,7 @@ function handleUpdate(info: UpdateInfo): void {
     revealSolutionBtn.hidden = false;
   }
   lastPhase = info.phase;
+  lastInfo = info;
 }
 
 function handleMatchOver(winner: Player): void {
@@ -542,6 +554,26 @@ endCountdownBtn.addEventListener('click', () => game?.endCountdownEarly());
 giveUpBtn.addEventListener('click', () => game?.giveUpRound());
 undoBtn.addEventListener('click', () => game?.undo());
 concedeBtn.addEventListener('click', () => game?.concede());
+for (const btn of dpadButtons) {
+  const direction = btn.dataset.direction as Direction;
+  btn.addEventListener('click', () => game?.move(direction));
+}
+
+// Lets a player start bidding by just pressing a number key, without first
+// clicking into their row's bid input -- while bidding is active and no bid
+// input already has focus (typing into one normally is left alone), a
+// digit key focuses the relevant row's input (mySlot online, otherwise
+// whichever row was last focused, defaulting to the first) and types it in,
+// same as if the player had clicked the field and typed themselves.
+window.addEventListener('keydown', (e) => {
+  if (!lastInfo || lastInfo.phase !== 'bidding') return;
+  if (!/^[0-9]$/.test(e.key)) return;
+  if (document.activeElement instanceof HTMLInputElement && document.activeElement.classList.contains('player-bid-input')) return;
+  const row = playerRowEls[lastInfo.mySlot ?? lastFocusedBidRow];
+  if (!row || row.bidInput.hidden) return;
+  row.bidInput.focus(); // clears the field first, see its own 'focus' handler above
+  row.bidInput.value = e.key;
+});
 roundContinueBtn.addEventListener('click', () => game?.continueToNextRound());
 revealSolutionBtn.addEventListener('click', () => {
   const result = game?.revealSolution();

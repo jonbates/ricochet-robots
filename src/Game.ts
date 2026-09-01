@@ -400,12 +400,15 @@ export class Game {
     const height = this.container.clientHeight;
     this.renderer.setSize(width, height);
     this.boardRenderer.resize(width, height);
-    // The board itself no longer fills its container's full width (see
-    // BoardRenderer.applyAspect) -- publish its actual on-screen width as a
-    // CSS variable on the shared parent so sibling HUD elements (the
-    // timer/target strip above the board) can align with the board rather
-    // than the wider container around it.
-    this.container.parentElement?.style.setProperty('--board-width', `${height * this.boardRenderer.boardToViewRatio}px`);
+    // The board's own on-screen width matches the *container's* width only
+    // when the container is narrower than tall (stacked mobile -- see
+    // BoardRenderer.applyAspect, which pins the full board width in that
+    // case); otherwise the board doesn't fill the container's full width,
+    // so publish its actual rendered width as a CSS variable on the shared
+    // parent instead, so sibling HUD elements (the timer/target strip above
+    // the board) can align with the board rather than the wider container.
+    const boardWidth = width / height >= 1 ? height * this.boardRenderer.boardToViewRatio : width;
+    this.container.parentElement?.style.setProperty('--board-width', `${boardWidth}px`);
   }
 
   private handleClick(event: MouseEvent): void {
@@ -434,19 +437,24 @@ export class Game {
     const direction = KEY_TO_DIRECTION[event.key];
     if (direction) {
       event.preventDefault();
-      if (!this.canActNow()) return;
-      if (this.net.role === 'client') {
-        void this.net.room?.action.send({ type: 'move', direction });
-        return;
-      }
-      if (this.state.move(direction)) {
-        this.syncRobots();
-        this.broadcastState();
-        this.resolveAttemptIfNeeded();
-      }
+      this.move(direction);
       return;
     }
     if (event.key === 'z' || event.key === 'Z') this.undo();
+  }
+
+  /** Attempts to slide the currently selected robot one step in `direction` -- shared by arrow-key input and the on-screen mobile D-pad (see main.ts). No-op if it isn't this instance's turn (see canActNow) or no robot is selected. */
+  move(direction: Direction): void {
+    if (!this.canActNow()) return;
+    if (this.net.role === 'client') {
+      void this.net.room?.action.send({ type: 'move', direction });
+      return;
+    }
+    if (this.state.move(direction)) {
+      this.syncRobots();
+      this.broadcastState();
+      this.resolveAttemptIfNeeded();
+    }
   }
 
   /** After a move during `attempting`: award success if the target's now satisfied, otherwise hand off to the next backup bidder once this one is out of moves. Only ever called from the host/local mutation paths -- a client never calls state.move() directly, so never reaches this. */
