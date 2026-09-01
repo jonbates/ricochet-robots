@@ -44,13 +44,18 @@ body {
 }
 
 /* A dedicated header strip above the board itself (not floating over it) --
-   gives the target "spotlight" reveal real breathing room instead of
-   crowding the board's top edge. Empty (and collapses to nothing, see
-   #hud-target-spotlight-slot:empty) once bidding starts and the target
-   moves down into the sidebar -- the countdown that used to share this
-   slot now lives in the matching strip below the board instead. */
+   gives the target "spotlight" reveal a little breathing room instead of
+   crowding the board's top edge. No fixed height (unlike #hud-bottom-strip,
+   which is occupied for most of a round) -- this strip sits empty far more
+   often than not (only the brief pre-bid spotlight reveal uses it), and a
+   fixed height tall enough for that panel left a dead gap above the board
+   the rest of the time. Sizing to content instead means it's truly zero
+   height once #hud-target-spotlight-slot collapses (see :empty below),
+   handing that space to the board, and still grows to exactly fit the
+   spotlight panel -- rather than a fixed box short enough to clip it --
+   while it's shown. */
 #hud-top-strip {
-  @apply flex-none h-14 flex items-center;
+  @apply flex-none flex items-center;
 }
 
 /* A twin of #hud-top-strip below the board instead of above it -- the
@@ -270,11 +275,11 @@ body {
 }
 
 .end-overlay-card {
-  @apply min-w-80 max-w-[480px] max-h-[90vh] px-11 py-9 rounded-2xl text-center text-[#e8f4ff] bg-[rgba(10,20,30,0.92)] border border-[rgba(255,255,255,0.18)] shadow-[0_20px_60px_rgba(0,0,0,0.5)] overflow-y-auto;
+  @apply min-w-80 max-w-[480px] max-h-[90vh] px-11 pt-5 pb-9 rounded-2xl text-center text-[#e8f4ff] bg-[rgba(10,20,30,0.92)] border border-[rgba(255,255,255,0.18)] shadow-[0_20px_60px_rgba(0,0,0,0.5)] overflow-y-auto;
 }
 
 .end-overlay-card h1 {
-  @apply mb-4 text-3xl tracking-[0.5px];
+  @apply mt-0 mb-4 text-3xl tracking-[0.5px];
 }
 
 .start-blurb {
