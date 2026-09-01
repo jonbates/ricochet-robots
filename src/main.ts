@@ -40,9 +40,6 @@ const targetColorName = required(
   '#target-color-name',
 );
 
-const hudBidInput = required(document.querySelector<HTMLDivElement>('#hud-bid-input'), '#hud-bid-input');
-const bidAmountInput = required(document.querySelector<HTMLInputElement>('#bid-amount'), '#bid-amount');
-
 const hudGiveUp = required(document.querySelector<HTMLDivElement>('#hud-give-up'), '#hud-give-up');
 const giveUpBtn = required(document.querySelector<HTMLButtonElement>('#give-up-btn'), '#give-up-btn');
 
@@ -337,8 +334,13 @@ function currentPlayerSetup(): string[] {
 // land on two different button instances, and the browser just drops the
 // click when that happens.
 let playersBuiltFor: readonly Player[] | null = null;
-let playerRowEls: { row: HTMLDivElement; scoreEl: HTMLSpanElement; bidValue: HTMLSpanElement; bidBtn: HTMLButtonElement }[] =
-  [];
+let playerRowEls: {
+  row: HTMLDivElement;
+  scoreEl: HTMLSpanElement;
+  bidValue: HTMLSpanElement;
+  bidInput: HTMLInputElement;
+  bidBtn: HTMLButtonElement;
+}[] = [];
 
 function buildPlayerRows(players: readonly Player[]): void {
   hudPlayers.replaceChildren();
@@ -356,22 +358,43 @@ function buildPlayerRows(players: readonly Player[]): void {
     const bidValue = document.createElement('span');
     bidValue.className = 'player-bid-value';
 
+    // The bid count control lives right next to its own player/Bid button
+    // (not a single shared input above the list) -- with several players
+    // bidding in turn, a shared field made it easy to bid with a number left
+    // over from whoever typed into it last.
+    const bidInput = document.createElement('input');
+    bidInput.type = 'number';
+    bidInput.min = '1';
+    bidInput.step = '1';
+    bidInput.value = '3';
+    bidInput.className = 'player-bid-input';
+    // Focusing (via click or keyboard) clears the field instead of leaving
+    // the previous/default number selected -- so typing a fresh count never
+    // requires a manual select-all/backspace first.
+    bidInput.addEventListener('focus', () => {
+      bidInput.value = '';
+    });
+
     const bidBtn = document.createElement('button');
     bidBtn.type = 'button';
     bidBtn.className = 'secondary-btn small-btn player-bid-btn';
     bidBtn.textContent = 'Bid';
-    bidBtn.addEventListener('click', () => {
-      const moves = Math.max(1, Math.floor(Number(bidAmountInput.value) || 1));
+    const placeBid = () => {
+      const moves = Math.max(1, Math.floor(Number(bidInput.value) || 1));
       game?.placeBid(i, moves);
+    };
+    bidBtn.addEventListener('click', placeBid);
+    bidInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') placeBid();
     });
 
     const scoreEl = document.createElement('span');
     scoreEl.className = 'player-score';
 
-    right.append(bidValue, bidBtn, scoreEl);
+    right.append(bidValue, bidInput, bidBtn, scoreEl);
     row.append(name, right);
     hudPlayers.appendChild(row);
-    return { row, scoreEl, bidValue, bidBtn };
+    return { row, scoreEl, bidValue, bidInput, bidBtn };
   });
 }
 
@@ -386,8 +409,10 @@ function renderPlayers(info: UpdateInfo): void {
     els.row.classList.toggle('active-bidder', info.activeBidPlayerIndex === i);
     const bid = info.bids.find((b: Bid) => b.playerIndex === i);
     els.bidValue.textContent = bid ? `bid ${bid.moves}` : '';
-    // In a networked match, only my own row's Bid button is usable -- I can't bid on another connected player's behalf. Local hot-seat play (mySlot === null) keeps every row's button, since it's one shared keyboard.
-    els.bidBtn.hidden = info.phase !== 'bidding' || (info.mySlot !== null && info.mySlot !== i);
+    // In a networked match, only my own row's bid controls are usable -- I can't bid on another connected player's behalf. Local hot-seat play (mySlot === null) keeps every row's controls, since it's one shared keyboard.
+    const showBidControls = info.phase === 'bidding' && (info.mySlot === null || info.mySlot === i);
+    els.bidInput.hidden = !showBidControls;
+    els.bidBtn.hidden = !showBidControls;
   });
 }
 
@@ -463,7 +488,6 @@ function handleUpdate(info: UpdateInfo): void {
   renderTarget(info);
   renderTimer(info);
 
-  hudBidInput.hidden = info.phase !== 'bidding';
   hudAttempting.hidden = info.phase !== 'attempting';
   hudAttemptStatus.hidden = info.phase !== 'attempting';
   hudGiveUp.hidden = info.phase === 'resolved';

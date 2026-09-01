@@ -70,11 +70,10 @@ body {
    Game.ts on #app every resize) rather than this whole strip's width --
    the board no longer fills its container (see BoardRenderer.applyAspect),
    so centering across the full strip would drift right of the board. The
-   left margin matches #board-area's own left margin so the two line up
-   (smaller on mobile -- see #board-area below). */
+   left margin matches #board-area's own left margin so the two line up. */
 #hud-top-strip-inner,
 #hud-bottom-strip-inner {
-  @apply w-[var(--board-width,100%)] ml-2.5 md:ml-5 flex justify-center gap-3;
+  @apply w-[var(--board-width,100%)] ml-1 flex justify-center gap-3;
 }
 
 #board-area {
@@ -83,11 +82,11 @@ body {
      not its margin, so padding here would size the renderer for a bigger
      box than the canvas actually gets styled to (100% of the padded
      content box), stretching/blurring it. Margin keeps the two in sync.
-     Smaller top/bottom -- the header/footer strips already provide their
-     own breathing room, so a full 20px there just doubled up the gap.
-     Smaller all around on mobile, where every pixel of a much narrower
-     screen counts more than it does on desktop. */
-  @apply flex-1 min-h-0 mt-1 mx-2.5 mb-1 md:mt-2 md:mx-5 md:mb-2;
+     Kept to a few px on every side -- the target/countdown/bid panels
+     around the board (top/bottom strips, sidebar) read as part of the same
+     control surface, not a separate section, so they sit right up against
+     it rather than a full 20px gap away. */
+  @apply flex-1 min-h-0 m-1;
 }
 
 #board-area canvas {
@@ -106,7 +105,7 @@ body {
    width and natural height on narrow screens instead, where it stacks
    below the board rather than sitting beside it. */
 #hud-left {
-  @apply w-full md:w-80 md:shrink-0 box-border p-2.5 md:p-4 flex flex-col justify-center gap-6 overflow-y-auto;
+  @apply w-full md:w-80 md:shrink-0 box-border p-1 flex flex-col justify-center gap-6 overflow-y-auto;
 }
 
 #hud-left-top {
@@ -147,6 +146,10 @@ body {
 
 .player-bid-btn {
   @apply text-xs px-2.5 py-1;
+}
+
+.player-bid-input {
+  @apply w-12 box-border px-1.5 py-1 rounded-lg border border-[rgba(255,255,255,0.3)] bg-[rgba(255,255,255,0.06)] text-[#e8f4ff] text-xs tabular-nums text-center;
 }
 
 #hud-target {
@@ -209,18 +212,6 @@ body {
 
 .hud-continue-btn {
   @apply w-full mt-3;
-}
-
-#hud-bid-input {
-  @apply min-w-[140px];
-}
-
-#hud-bid-input .hud-instructions {
-  @apply mb-2 text-xs;
-}
-
-#bid-amount {
-  @apply w-full box-border px-2.5 py-2 rounded-lg border border-[rgba(255,255,255,0.3)] bg-[rgba(255,255,255,0.06)] text-[#e8f4ff] text-sm tabular-nums;
 }
 
 #hud-timer {
