@@ -81,6 +81,7 @@ const SOLUTION_ARROW_LENGTH = 0.26;
 const SOLUTION_ARROW_WIDTH = 0.22;
 const SOLUTION_SHADOW_PAD = 0.044; // extra length/width baked into the dark shadow copy of each dash/arrow, so it peeks out from under the colored one on every side
 const SOLUTION_SHADOW_Y = SOLUTION_PATH_Y - 0.01; // just beneath the colored dashes/arrows, so it reads as a shadow rather than fighting them for depth
+const SOLUTION_ARROW_PULLBACK = 1; // one board square -- the arrowhead would otherwise land exactly under the robot's own mesh at the destination cell and be invisible
 const SOLUTION_JITTER_STEP = 0.07; // sideways offset per move, so overlapping moves (a later one retracing an earlier one's cells) run side by side instead of exactly on top of each other
 const SOLUTION_JITTER_CYCLE = 5; // offsets cycle through a small +/- range rather than drifting further apart with every extra move in a long solution
 const TRAIL_LABEL_RADIUS = 0.32;
@@ -666,14 +667,18 @@ export class BoardRenderer {
         const perpX = -lastRun.dr * jitter;
         const perpZ = lastRun.dc * jitter;
         const arrowAngle = directionAngle(lastRun.dc, lastRun.dr);
+        const runLength = Math.hypot(lastRun.b.x - lastRun.a.x, lastRun.b.z - lastRun.a.z);
+        const pullback = Math.min(SOLUTION_ARROW_PULLBACK, runLength);
+        const arrowX = lastRun.b.x - lastRun.dc * pullback;
+        const arrowZ = lastRun.b.z - lastRun.dr * pullback;
 
         const arrowShadow = new Mesh(arrowShadowGeometry, shadowMaterial);
-        arrowShadow.position.set(lastRun.b.x + perpX, SOLUTION_SHADOW_Y, lastRun.b.z + perpZ);
+        arrowShadow.position.set(arrowX + perpX, SOLUTION_SHADOW_Y, arrowZ + perpZ);
         arrowShadow.rotation.y = arrowAngle;
         group.add(arrowShadow);
 
         const arrow = new Mesh(arrowGeometry, material);
-        arrow.position.set(lastRun.b.x + perpX, SOLUTION_PATH_Y, lastRun.b.z + perpZ);
+        arrow.position.set(arrowX + perpX, SOLUTION_PATH_Y, arrowZ + perpZ);
         arrow.rotation.y = arrowAngle;
         group.add(arrow);
       }
