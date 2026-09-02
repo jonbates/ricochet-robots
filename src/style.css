@@ -274,8 +274,13 @@ body {
   @apply w-12 box-border px-1.5 py-1 rounded-lg border border-[rgba(255,255,255,0.3)] bg-[rgba(255,255,255,0.06)] text-[#e8f4ff] text-xs tabular-nums text-center;
 }
 
+/* Centered rather than left-aligned -- in its normal sidebar spot this
+   panel sits directly below the board on a stacked mobile layout, where a
+   left-aligned icon+label reads as randomly offset rather than as the
+   board's own focal point. Matches the spotlight variant's centering
+   (previously spotlight-only), just without the larger swatch/text. */
 #hud-target {
-  @apply min-w-[140px];
+  @apply min-w-[140px] text-center;
 }
 
 .hud-target-label {
@@ -283,7 +288,7 @@ body {
 }
 
 .hud-target-swatch-row {
-  @apply flex items-center justify-start gap-2;
+  @apply flex items-center justify-center gap-2;
 }
 
 /* Holds the canvas-drawn target icon (see targetIcon2d.ts) -- that canvas
@@ -312,11 +317,7 @@ body {
 }
 
 .hud-target-spotlight {
-  @apply min-w-[220px] text-center;
-}
-
-.hud-target-spotlight .hud-target-swatch-row {
-  @apply justify-center;
+  @apply min-w-[220px];
 }
 
 .hud-target-spotlight .swatch {
