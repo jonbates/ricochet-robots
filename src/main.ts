@@ -1042,8 +1042,9 @@ function saveDpadPosition(): void {
   }
 }
 
-// Defaults to the board's bottom-right corner (nudged in slightly) the very
-// first time it's shown; a saved drag from a previous visit overrides that.
+// Defaults to straddling the board's bottom edge, centered horizontally,
+// the very first time it's shown; a saved drag from a previous visit
+// overrides that.
 function restoreDpadPosition(): void {
   let saved: string | null = null;
   try {
@@ -1059,7 +1060,7 @@ function restoreDpadPosition(): void {
     }
   }
   const boardRect = container.getBoundingClientRect();
-  setDpadPosition(boardRect.right - DPAD_SIZE - 12, boardRect.bottom - DPAD_SIZE - 12);
+  setDpadPosition(boardRect.left + boardRect.width / 2 - DPAD_SIZE / 2, boardRect.bottom - DPAD_SIZE / 2);
 }
 restoreDpadPosition();
 window.addEventListener('resize', () => setDpadPosition(mobileDpad.offsetLeft, mobileDpad.offsetTop));
