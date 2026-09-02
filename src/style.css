@@ -383,6 +383,18 @@ body {
   @apply bg-[rgba(255,255,255,0.1)];
 }
 
+/* Exit/Reset read as lower-priority than the rest of the HUD's actions --
+   a solid gray fill instead of the plain transparent .secondary-btn, and
+   flex-1 so each spans the full width of the row (or, when Reset is
+   hidden, Exit alone fills it). */
+#hud-match-controls .secondary-btn {
+  @apply flex-1 bg-[#3f4750];
+}
+
+#hud-match-controls .secondary-btn:hover {
+  @apply bg-[#4b545e];
+}
+
 .end-overlay {
   @apply fixed inset-0 hidden items-center justify-center bg-[rgba(4,10,20,0.6)] backdrop-blur-[3px] z-10;
 }
