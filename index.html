@@ -92,9 +92,11 @@
         <!-- Always last in the sidebar's own button list -- covered by
              whichever overlay (.end-overlay) is on top whenever no match is
              underway, same as #hud-give-up above needing no explicit
-             `hidden` handling of its own. Reset is networked-only (main.ts
-             toggles its `hidden`) -- hot-seat play has no persisted session
-             or player identity for it to usefully wipe. -->
+             `hidden` handling of its own. One button doing double duty:
+             plain "Exit" for local hot-seat play, or "Exit and Reset" for
+             a networked match, where it also clears this device's saved
+             player identity -- main.ts swaps its label/handler based on
+             mode. -->
         <div id="hud-match-controls" class="hud-panel hud-actions">
           <button
             id="exit-match-btn"
@@ -103,15 +105,6 @@
             title="Leave the match and return to the start screen"
           >
             Exit
-          </button>
-          <button
-            id="reset-match-btn"
-            type="button"
-            class="secondary-btn small-btn"
-            hidden
-            title="Leave the match and clear this device's saved player identity too"
-          >
-            Reset
           </button>
         </div>
       </div>
@@ -184,6 +177,7 @@
 
         <div id="lobby-room" class="lobby-view">
           <p class="lobby-room-code">Room code: <strong id="lobby-room-code-value"></strong></p>
+          <p id="lobby-room-code-copied" class="lobby-room-code-copied" hidden>Code copied to the clipboard</p>
 
           <div id="lobby-board-select" class="board-select" hidden>
             <button type="button" class="board-btn lobby-board-btn" data-variant="classic">

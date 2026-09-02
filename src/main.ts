@@ -49,7 +49,6 @@ const hudGiveUp = required(document.querySelector<HTMLDivElement>('#hud-give-up'
 const giveUpBtn = required(document.querySelector<HTMLButtonElement>('#give-up-btn'), '#give-up-btn');
 
 const exitMatchBtn = required(document.querySelector<HTMLButtonElement>('#exit-match-btn'), '#exit-match-btn');
-const resetMatchBtn = required(document.querySelector<HTMLButtonElement>('#reset-match-btn'), '#reset-match-btn');
 
 const mobileDpad = required(document.querySelector<HTMLDivElement>('#mobile-dpad'), '#mobile-dpad');
 const dpadButtons = Array.from(document.querySelectorAll<HTMLButtonElement>('.dpad-btn'));
@@ -130,6 +129,10 @@ const lobbyRoom = required(document.querySelector<HTMLDivElement>('#lobby-room')
 const lobbyRoomCodeValue = required(
   document.querySelector<HTMLElement>('#lobby-room-code-value'),
   '#lobby-room-code-value',
+);
+const lobbyRoomCodeCopied = required(
+  document.querySelector<HTMLParagraphElement>('#lobby-room-code-copied'),
+  '#lobby-room-code-copied',
 );
 const lobbyBoardSelect = required(document.querySelector<HTMLDivElement>('#lobby-board-select'), '#lobby-board-select');
 const lobbyBoardButtons = Array.from(document.querySelectorAll<HTMLButtonElement>('.lobby-board-btn'));
@@ -373,6 +376,22 @@ function wireHostPeerHandlers(newRoom: NetworkRoom): void {
   };
 }
 
+let roomCodeCopiedTimer: ReturnType<typeof setTimeout> | undefined;
+
+/** Copies a freshly generated room code to the clipboard and flashes a brief confirmation next to it -- best-effort, since clipboard access can be silently denied (permissions, insecure context), in which case the code is still right there on screen to read out or type manually. */
+function copyRoomCodeToClipboard(code: string): void {
+  navigator.clipboard
+    ?.writeText(code)
+    .then(() => {
+      lobbyRoomCodeCopied.hidden = false;
+      clearTimeout(roomCodeCopiedTimer);
+      roomCodeCopiedTimer = setTimeout(() => {
+        lobbyRoomCodeCopied.hidden = true;
+      }, 2000);
+    })
+    .catch(() => {});
+}
+
 async function hostRoom(): Promise<void> {
   leaveRoom();
   const code = generateRoomCode();
@@ -388,6 +407,7 @@ async function hostRoom(): Promise<void> {
   wireHostPeerHandlers(newRoom);
 
   lobbyRoomCodeValue.textContent = code;
+  copyRoomCodeToClipboard(code);
   lobbyBoardSelect.hidden = false;
   lobbyBoardReadonly.hidden = true;
   lobbyStartBtn.hidden = false;
@@ -496,7 +516,7 @@ function beginMultiplayerMatch(msg: StartMatchMsg, initialPeerMap?: ReadonlyMap<
   currentMatchId = msg.matchId;
   lobbyOverlay.classList.remove('visible');
   startOverlay.classList.remove('visible');
-  resetMatchBtn.hidden = false;
+  updateExitButtonForMode();
   game?.dispose();
   lastPhase = null;
   game = new Game(
@@ -558,7 +578,7 @@ async function restoreHostSession(record: PersistedHostSession): Promise<void> {
     };
     currentPlayerNames = record.startMsg.playerNames;
     startOverlay.classList.remove('visible');
-    resetMatchBtn.hidden = false;
+    updateExitButtonForMode();
     lastPhase = null;
     game = new Game(
       container,
@@ -595,27 +615,24 @@ function backToStartOverlay(): void {
 
 /**
  * Leaves any active match/room, clears the persisted session, and returns
- * to the start screen -- wired to the "Exit" button, present for every
- * match (local hot-seat or networked). leaveRoom() is a no-op for local
- * play (room/myRole are already null there), so this same function works
- * unconditionally for both.
+ * to the start screen. leaveRoom() is a no-op for local play (room/myRole
+ * are already null there), so this same function works unconditionally for
+ * both hot-seat and networked matches.
  */
 function exitMatch(): void {
   leaveRoom();
   game?.dispose();
   game = null;
   lastPhase = null;
-  resetMatchBtn.hidden = true;
+  updateExitButtonForMode();
   matchOverOverlay.classList.remove('visible');
   lobbyOverlay.classList.remove('visible');
   startOverlay.classList.add('visible');
 }
 
 /**
- * Networked matches only (resetMatchBtn stays hidden for local hot-seat
- * play, which has no persisted session or player identity for this to
- * usefully wipe) -- does everything exitMatch() does, plus clears this
- * tab's stable player identity (myPlayerId, see its own doc comment).
+ * Networked matches only -- does everything exitMatch() does, plus clears
+ * this tab's stable player identity (myPlayerId, see its own doc comment).
  * Reloads the page afterward: myPlayerId is a module-level constant
  * captured once at load, so nothing short of a fresh load can pick up its
  * absence -- trying to reset it in place here would leave every other
@@ -626,6 +643,30 @@ function resetAndExit(): void {
   leaveRoom();
   sessionStorage.removeItem(MY_PLAYER_ID_KEY);
   window.location.reload();
+}
+
+/**
+ * One button does double duty as both "Exit" (local hot-seat play, which
+ * has no persisted session or player identity worth clearing) and "Exit and
+ * Reset" (a networked match) -- swap its label/title here, alongside every
+ * place myRole changes, rather than keeping a second button around.
+ */
+function updateExitButtonForMode(): void {
+  if (myRole) {
+    exitMatchBtn.textContent = 'Exit and Reset';
+    exitMatchBtn.title = "Leave the match and clear this device's saved player identity too";
+  } else {
+    exitMatchBtn.textContent = 'Exit';
+    exitMatchBtn.title = 'Leave the match and return to the start screen';
+  }
+}
+
+function handleExitClick(): void {
+  if (myRole) {
+    resetAndExit();
+  } else {
+    exitMatch();
+  }
 }
 
 function updatePlayerNameInputVisibility(): void {
@@ -903,7 +944,7 @@ function startGame(variantId: BoardVariantId): void {
   currentPlayerNames = currentPlayerSetup();
   game?.dispose();
   lastPhase = null;
-  resetMatchBtn.hidden = true;
+  updateExitButtonForMode();
   game = new Game(
     container,
     variantId,
@@ -926,8 +967,7 @@ endCountdownBtn.addEventListener('click', () => game?.endCountdownEarly());
 giveUpBtn.addEventListener('click', () => game?.giveUpRound());
 undoBtn.addEventListener('click', () => game?.undo());
 concedeBtn.addEventListener('click', () => game?.concede());
-exitMatchBtn.addEventListener('click', exitMatch);
-resetMatchBtn.addEventListener('click', resetAndExit);
+exitMatchBtn.addEventListener('click', handleExitClick);
 for (const btn of dpadButtons) {
   const direction = btn.dataset.direction as Direction;
   btn.addEventListener('click', (e) => {
