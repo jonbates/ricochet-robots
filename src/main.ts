@@ -999,6 +999,117 @@ for (const btn of dpadButtons) {
   });
 }
 
+// Press-and-drag repositioning for the D-pad -- it's `position: fixed` (see
+// .mobile-dpad in style.css) so it can be moved anywhere over the board
+// instead of being stuck in one spot. A short move threshold distinguishes a
+// drag from a tap: below it, the pointerup's subsequent click reaches the
+// button underneath as normal; past it, `dpadJustDragged` is set so the
+// capture-phase click listener below can swallow that click before it ever
+// reaches the button, so ending a drag never also fires a move.
+const DPAD_SIZE = 140;
+const DPAD_DRAG_THRESHOLD = 6;
+const DPAD_POSITION_KEY = 'rr-dpad-position';
+
+interface DpadDragState {
+  pointerId: number;
+  startClientX: number;
+  startClientY: number;
+  startLeft: number;
+  startTop: number;
+  moved: boolean;
+}
+
+let dpadDrag: DpadDragState | null = null;
+let dpadJustDragged = false;
+
+function clampDpadPosition(left: number, top: number): { left: number; top: number } {
+  const maxLeft = Math.max(window.innerWidth - DPAD_SIZE, 0);
+  const maxTop = Math.max(window.innerHeight - DPAD_SIZE, 0);
+  return { left: Math.min(Math.max(left, 0), maxLeft), top: Math.min(Math.max(top, 0), maxTop) };
+}
+
+function setDpadPosition(left: number, top: number): void {
+  const clamped = clampDpadPosition(left, top);
+  mobileDpad.style.left = `${clamped.left}px`;
+  mobileDpad.style.top = `${clamped.top}px`;
+}
+
+function saveDpadPosition(): void {
+  try {
+    localStorage.setItem(DPAD_POSITION_KEY, mobileDpad.style.left + ',' + mobileDpad.style.top);
+  } catch {
+    // Private browsing / storage disabled -- the position just won't stick.
+  }
+}
+
+// Defaults to the board's bottom-right corner (nudged in slightly) the very
+// first time it's shown; a saved drag from a previous visit overrides that.
+function restoreDpadPosition(): void {
+  let saved: string | null = null;
+  try {
+    saved = localStorage.getItem(DPAD_POSITION_KEY);
+  } catch {
+    saved = null;
+  }
+  if (saved) {
+    const [left, top] = saved.split(',').map((n) => parseFloat(n));
+    if (Number.isFinite(left) && Number.isFinite(top)) {
+      setDpadPosition(left, top);
+      return;
+    }
+  }
+  const boardRect = container.getBoundingClientRect();
+  setDpadPosition(boardRect.right - DPAD_SIZE - 12, boardRect.bottom - DPAD_SIZE - 12);
+}
+restoreDpadPosition();
+window.addEventListener('resize', () => setDpadPosition(mobileDpad.offsetLeft, mobileDpad.offsetTop));
+
+mobileDpad.addEventListener('pointerdown', (e) => {
+  dpadDrag = {
+    pointerId: e.pointerId,
+    startClientX: e.clientX,
+    startClientY: e.clientY,
+    startLeft: mobileDpad.offsetLeft,
+    startTop: mobileDpad.offsetTop,
+    moved: false,
+  };
+  mobileDpad.setPointerCapture(e.pointerId);
+});
+
+mobileDpad.addEventListener('pointermove', (e) => {
+  if (!dpadDrag || e.pointerId !== dpadDrag.pointerId) return;
+  const dx = e.clientX - dpadDrag.startClientX;
+  const dy = e.clientY - dpadDrag.startClientY;
+  if (!dpadDrag.moved && Math.hypot(dx, dy) < DPAD_DRAG_THRESHOLD) return;
+  dpadDrag.moved = true;
+  setDpadPosition(dpadDrag.startLeft + dx, dpadDrag.startTop + dy);
+});
+
+function endDpadDrag(e: PointerEvent): void {
+  if (!dpadDrag || e.pointerId !== dpadDrag.pointerId) return;
+  if (dpadDrag.moved) {
+    dpadJustDragged = true;
+    saveDpadPosition();
+  }
+  dpadDrag = null;
+}
+mobileDpad.addEventListener('pointerup', endDpadDrag);
+mobileDpad.addEventListener('pointercancel', () => {
+  dpadDrag = null;
+});
+
+// Capture phase so this runs before the click ever reaches a .dpad-btn.
+mobileDpad.addEventListener(
+  'click',
+  (e) => {
+    if (dpadJustDragged) {
+      e.stopPropagation();
+      dpadJustDragged = false;
+    }
+  },
+  true,
+);
+
 // Lets a player start bidding by just pressing a number key, without first
 // clicking into their row's bid input -- while bidding is active and no bid
 // input already has focus (typing into one normally is left alone), a

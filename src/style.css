@@ -118,19 +118,28 @@ body {
    main.ts (info.phase !== 'attempting'), which needs its own, more specific
    rule below to reliably win regardless of viewport width -- same reasoning
    as #hud-timer[hidden] further down.
-   Sits in normal document flow just below the board (a sibling of
-   #board-area, not an absolutely-positioned overlay on top of it) --
-   floating it over the board used to hide whatever robot was underneath,
-   and tapping through to that robot (see the removed Game.selectRobotAtPoint)
-   was never reliable enough to fully make up for it. mx-auto centers it
-   under the board; my-2 gives it a little breathing room on both sides.
+   `fixed` + JS-driven left/top (see the drag handling in main.ts) rather
+   than a normal-flow sibling of #board-area -- sitting in flow put it a
+   whole strip below the board, too far from the robots being slid. Floating
+   it back over the board can occlude a robot again, so instead of picking
+   one fixed spot, it's user-draggable (press and drag beyond a small
+   threshold to move it; a plain tap still presses the button underneath)
+   and its position is remembered across visits via localStorage -- see
+   restoreDpadPosition/saveDpadPosition. touch-action: none stops the
+   browser from also trying to scroll the page while a drag is in progress.
+   z-[5] keeps it above the board canvas but below the end-of-round overlays
+   (z-10), which take priority if one ever opens while a drag is mid-flight.
    rounded-2xl + overflow-hidden gives the whole widget one shared
    background and softly clips the four buttons' outer corners -- each
    button itself still fills the full square (see .dpad-btn), so nearly all
    of that area stays clickable, just its very corner pixels are trimmed
    for a less blocky look. */
 .mobile-dpad {
-  @apply relative mx-auto my-2 w-[140px] h-[140px] md:hidden rounded-2xl bg-[rgba(58,69,80,0.5)] border-2 border-[#9ca3af] shadow-[0_2px_6px_rgba(0,0,0,0.4)] overflow-hidden;
+  @apply fixed z-[5] w-[140px] h-[140px] md:hidden touch-none cursor-grab rounded-2xl bg-[rgba(58,69,80,0.5)] border-2 border-[#9ca3af] shadow-[0_2px_6px_rgba(0,0,0,0.4)] overflow-hidden;
+}
+
+.mobile-dpad:active {
+  @apply cursor-grabbing;
 }
 
 .mobile-dpad[hidden] {

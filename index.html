@@ -25,9 +25,10 @@
       <div id="board-area"></div>
       <!-- Touch-only substitute for arrow keys -- hidden outside the
            attempting phase and on desktop (see .mobile-dpad in style.css),
-           since a physical keyboard covers this there. Sits in normal flow
-           just below the board rather than floating over it, so it never
-           obscures a robot a player needs to tap. -->
+           since a physical keyboard covers this there. Fixed-positioned and
+           user-draggable (see the drag handling in main.ts) rather than
+           pinned to one spot, so it can be moved off whichever robot it's
+           currently covering. -->
       <div id="mobile-dpad" class="mobile-dpad" hidden>
         <button type="button" class="dpad-btn dpad-up" data-direction="N" aria-label="Move up"><span class="dpad-arrow"></span></button>
         <button type="button" class="dpad-btn dpad-left" data-direction="W" aria-label="Move left"><span class="dpad-arrow"></span></button>
