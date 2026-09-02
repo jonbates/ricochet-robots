@@ -10,7 +10,7 @@ import type { ActionMsg, StartMatchMsg, StateSnapshot } from './net/protocol';
 export const WIN_SCORE = 5;
 
 /** See revealSolution()'s doc comment -- how many moves deep the solver searches by default when no explicit depth is passed to the Game constructor. The user can raise or lower this (a "Search Depth" control on the start screen); higher finds longer solutions but risks a slower response, since a bounded-failure search (proving a target unreachable within the cap) is the expensive path. */
-export const DEFAULT_SEARCH_DEPTH = 10;
+export const DEFAULT_SEARCH_DEPTH = 12;
 
 export type NetRole = 'local' | 'host' | 'client';
 
@@ -384,17 +384,18 @@ export class Game {
    * all, this cap only affects whether the solver can *reveal* the answer
    * on request.
    */
-  revealSolution(): SolveResult | null {
-    const result = this.computeAndDrawSolution();
+  /** `onProgress`, when given, is called with each depth (1-indexed) as the search begins exploring it -- see solve()'s own doc comment for why a long solve needs this. Only meaningful for whichever peer actually triggered this call; not threaded through the `revealed`-changed path below, which every *other* peer's own instance runs silently in the background. */
+  async revealSolution(onProgress?: (depth: number) => void): Promise<SolveResult | null> {
+    const result = await this.computeAndDrawSolution(onProgress);
     this.revealed = true;
     if (this.net.role === 'client') void this.net.room?.action.send({ type: 'revealSolution' });
     else this.broadcastState();
     return result;
   }
 
-  private computeAndDrawSolution(): SolveResult | null {
+  private async computeAndDrawSolution(onProgress?: (depth: number) => void): Promise<SolveResult | null> {
     try {
-      const result = solve(this.board, this.state.roundStartRobots, this.state.target, this.searchDepth);
+      const result = await solve(this.board, this.state.roundStartRobots, this.state.target, this.searchDepth, onProgress);
       this.boardRenderer.showSolutionPath(this.pathsForMoves(result.moves));
       // Clears the round's own attempt trail rather than leaving it drawn
       // alongside the optimal one -- the two competing on the board at once
@@ -786,7 +787,7 @@ export class Game {
     if (targetChanged) this.boardRenderer.setTarget(this.state.target);
     this.syncRobots();
     if (revealedChanged) {
-      if (this.revealed) this.computeAndDrawSolution();
+      if (this.revealed) void this.computeAndDrawSolution();
       else this.boardRenderer.clearSolutionPath();
     }
   }

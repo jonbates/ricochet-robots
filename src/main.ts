@@ -1012,22 +1012,28 @@ window.addEventListener('keydown', (e) => {
 });
 roundContinueBtn.addEventListener('click', () => game?.continueToNextRound());
 revealSolutionBtn.addEventListener('click', () => {
-  const result = game?.revealSolution();
-  // Disabled in place rather than hidden -- hiding it would collapse its
-  // spot in the panel and shift Continue up into it, right under wherever
-  // the player's finger/cursor still was, risking an accidental tap on
-  // Continue immediately after Reveal.
-  revealSolutionBtn.disabled = true;
-  revealSolutionBtn.textContent = 'Solution Revealed';
-  if (!result) {
-    solutionDetail.textContent = 'No solution found within a reasonable search depth.';
-  } else if (result.count === 0) {
-    solutionDetail.textContent = 'Already solved -- 0 moves needed.';
-  } else {
-    // The dotted arrow path is drawn directly on the board by revealSolution() itself.
-    solutionDetail.textContent = `Optimal: ${result.count} move${result.count === 1 ? '' : 's'} -- ${result.moves.map(describeMove).join(', ')}`;
-  }
-  solutionDetail.hidden = false;
+  void (async () => {
+    // Disabled in place rather than hidden -- hiding it would collapse its
+    // spot in the panel and shift Continue up into it, right under wherever
+    // the player's finger/cursor still was, risking an accidental tap on
+    // Continue immediately after Reveal.
+    revealSolutionBtn.disabled = true;
+    revealSolutionBtn.textContent = 'Solving...';
+    solutionDetail.hidden = false;
+    solutionDetail.textContent = 'Exploring 1-move paths...';
+    const result = await game?.revealSolution((depth) => {
+      solutionDetail.textContent = `Exploring ${depth}-move paths...`;
+    });
+    revealSolutionBtn.textContent = 'Solution Revealed';
+    if (!result) {
+      solutionDetail.textContent = 'No solution found within a reasonable search depth.';
+    } else if (result.count === 0) {
+      solutionDetail.textContent = 'Already solved -- 0 moves needed.';
+    } else {
+      // The dotted arrow path is drawn directly on the board by revealSolution() itself.
+      solutionDetail.textContent = `Optimal: ${result.count} move${result.count === 1 ? '' : 's'} -- ${result.moves.map(describeMove).join(', ')}`;
+    }
+  })();
 });
 playAgainBtn.addEventListener('click', () => {
   game?.resetMatch(currentPlayerNames);

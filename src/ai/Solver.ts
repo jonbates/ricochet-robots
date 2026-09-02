@@ -66,29 +66,39 @@ function hasGenuineRicochet(board: Board, startRobots: RobotPositions, moves: re
   return ownMoveCount === 0 || ricocheted;
 }
 
+/** Hands control back to the browser's event loop for one turn -- long enough for a pending DOM update (e.g. a progress message) to actually paint before the next depth's search resumes blocking the main thread. */
+function yieldToBrowser(): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, 0));
+}
+
 /**
  * Breadth-first search over 4-robot-position states, stopping at `maxDepth`.
  * Plain BFS with a visited-state set is simpler than the IDA*-with-heuristics
  * real solvers use, and still guarantees the true optimum (BFS explores
  * strictly shortest-first). Used only on demand (the "Reveal Optimal
  * Solution" button), never as a live opponent, so its only real constraint
- * is staying fast for a genuine solve -- which it is, since every authored
- * target is reachable and a successful search returns as soon as it's found
- * rather than exhaustively scanning the whole space (that exhaustive-scan
- * cost only shows up when proving a target is *unreachable*, which never
- * happens against this board).
+ * is staying fast for a genuine solve -- which it mostly is, since every
+ * authored target is reachable and a successful search returns as soon as
+ * it's found rather than exhaustively scanning the whole space -- but a
+ * long solution can still take a real, human-noticeable amount of time (one
+ * measured case: ~29s for a genuine 12-move solve), so this is async and
+ * yields to the browser between depths (see yieldToBrowser) rather than
+ * blocking the tab outright, and reports progress via `onProgress` so a
+ * caller can show "Exploring N-move paths..." instead of the page just
+ * looking frozen.
  *
  * Per the real rule, the robot landing on the target must genuinely
  * ricochet on the way -- see hasGenuineRicochet -- so a state that merely
  * reaches the target cell isn't automatically accepted; the search keeps
  * going past it if the shot that got there never actually redirected.
  */
-export function solve(
+export async function solve(
   board: Board,
   startRobots: RobotPositions,
   target: { color: TargetColor; cell: Cell },
   maxDepth = MAX_DEPTH,
-): SolveResult {
+  onProgress?: (depth: number) => void,
+): Promise<SolveResult> {
   if (ROBOT_COLORS.some((c) => reachesTarget(c, startRobots[c], target))) {
     return { moves: [], count: 0 };
   }
@@ -102,6 +112,8 @@ export function solve(
   let queue: QueueItem[] = [{ robots: startRobots, moves: [] }];
 
   for (let depth = 0; depth < maxDepth; depth++) {
+    onProgress?.(depth + 1);
+    await yieldToBrowser();
     const next: QueueItem[] = [];
     for (const item of queue) {
       for (const color of ROBOT_COLORS) {

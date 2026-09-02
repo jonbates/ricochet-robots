@@ -14,14 +14,14 @@ const classicBoard = new Board(buildBoardVariant('classic', FIXED_ASSIGNMENT).wa
 const TARGETS = buildBoardVariant('classic', FIXED_ASSIGNMENT).targets;
 const redTarget = TARGETS.find((t) => t.color === 'red' && t.cell.col === 3 && t.cell.row === 6)!;
 
-function trySolveOrNull(
+async function trySolveOrNull(
   board: Board,
   robots: RobotPositions,
   target: { color: TargetColor; cell: Cell },
   maxDepth: number,
 ) {
   try {
-    return solve(board, robots, target, maxDepth);
+    return await solve(board, robots, target, maxDepth);
   } catch {
     return null;
   }
@@ -56,26 +56,26 @@ function replayReachesTarget(
 }
 
 describe('solve', () => {
-  it('returns zero moves when the target robot is already there', () => {
+  it('returns zero moves when the target robot is already there', async () => {
     const robots: RobotPositions = { ...INITIAL_ROBOTS, red: redTarget.cell };
-    const result = solve(classicBoard, robots, redTarget);
+    const result = await solve(classicBoard, robots, redTarget);
     expect(result).toEqual({ moves: [], count: 0 });
   });
 
-  it('returns zero moves for a warp target satisfied by any robot, not just a specific color', () => {
+  it('returns zero moves for a warp target satisfied by any robot, not just a specific color', async () => {
     const warpTarget = TARGETS.find((t) => t.color === 'warp')!;
     const robots: RobotPositions = { ...INITIAL_ROBOTS, blue: warpTarget.cell };
-    const result = solve(classicBoard, robots, warpTarget);
+    const result = await solve(classicBoard, robots, warpTarget);
     expect(result).toEqual({ moves: [], count: 0 });
   });
 
-  it('refuses a trivial straight shot even when the robot is already lined up for one, and finds a genuinely ricocheting route instead', () => {
+  it('refuses a trivial straight shot even when the robot is already lined up for one, and finds a genuinely ricocheting route instead', async () => {
     // Red starts due north of its own target in the same column -- a single
     // straight slide south would reach it directly, with no direction
     // change at all. Per the real rule that doesn't count as solved, so the
     // solver must reject it and search for a longer, valid alternative.
     const robots: RobotPositions = { ...INITIAL_ROBOTS, red: { col: 3, row: 0 } };
-    const result = solve(classicBoard, robots, redTarget, 12);
+    const result = await solve(classicBoard, robots, redTarget, 12);
     expect(result.count).toBeGreaterThan(1);
     expect(replayReachesTarget(classicBoard, robots, result.moves, redTarget)).toBe(true);
     // The rejected direct shot is still a *legal* move (it's what the ricochet
@@ -84,7 +84,7 @@ describe('solve', () => {
     expect(result.moves.length > 1 || result.moves[0]?.color !== 'red').toBe(true);
   });
 
-  it('refuses moving a blocker robot out of the way and then sliding the target robot straight in -- that is not a genuine ricochet even though it is more than one total move', () => {
+  it('refuses moving a blocker robot out of the way and then sliding the target robot straight in -- that is not a genuine ricochet even though it is more than one total move', async () => {
     // Same shape of minimal board as GameState.test.ts's ricochet-rule fixture:
     // red target at (5,5) with walls S and E (valid entries: south down column
     // 5, or west along row 5), plus an extra E-wall at (5,0) giving a second
@@ -101,7 +101,7 @@ describe('solve', () => {
     const board = new Board(walls);
     const robots: RobotPositions = { ...INITIAL_ROBOTS, red: { col: 0, row: 0 }, blue: { col: 5, row: 3 } };
 
-    const result = solve(board, robots, target, 8);
+    const result = await solve(board, robots, target, 8);
     expect(replayReachesTarget(board, robots, result.moves, target)).toBe(true);
     const redMoves = result.moves.filter((m) => m.color === 'red');
     // Red's own moves must show a genuine redirection, not just land on the
@@ -110,7 +110,7 @@ describe('solve', () => {
     expect(new Set(redMoves.map((m) => m.direction)).size).toBeGreaterThan(1);
   });
 
-  it('a deflector bounce within a single move counts as a ricochet -- a bent 1-move solve is still valid', () => {
+  it('a deflector bounce within a single move counts as a ricochet -- a bent 1-move solve is still valid', async () => {
     // A minimal isolated board (not the dense real one -- that turned out to
     // stay slow/deep even with a hand-picked deflector, since it's hard to
     // predict by hand which shortcuts actually pay off there) with a single
@@ -127,8 +127,8 @@ describe('solve', () => {
     const withoutDeflector = new Board(targetWalls);
     const withDeflector = new Board(targetWalls, [{ col: 5, row: 0, orientation: '\\', color: 'blue' }]);
 
-    const baseline = trySolveOrNull(withoutDeflector, robots, target, 8);
-    const withShortcut = solve(withDeflector, robots, target, 8);
+    const baseline = await trySolveOrNull(withoutDeflector, robots, target, 8);
+    const withShortcut = await solve(withDeflector, robots, target, 8);
 
     expect(withShortcut.count).toBe(1);
     expect(withShortcut.moves).toEqual([
@@ -162,8 +162,8 @@ describe('every target is completable from the initial layout', () => {
 
     it.each(variant.targets)(
       `solves the $color $shape target at ($cell.col,$cell.row) on the ${variantId} board, if within the reveal-feature's search budget`,
-      (target: Target) => {
-        const result = trySolveOrNull(board, INITIAL_ROBOTS, target, COMPLETABILITY_SEARCH_DEPTH);
+      async (target: Target) => {
+        const result = await trySolveOrNull(board, INITIAL_ROBOTS, target, COMPLETABILITY_SEARCH_DEPTH);
         if (!result) return; // needs more than COMPLETABILITY_SEARCH_DEPTH moves -- still playable by hand, just not reveal-able
         expect(result.count).toBe(result.moves.length);
         expect(replayReachesTarget(board, INITIAL_ROBOTS, result.moves, target)).toBe(true);
