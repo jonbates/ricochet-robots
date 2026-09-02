@@ -14,6 +14,7 @@ function required<T>(el: T | null, selector: string): T {
 }
 
 const container = required(document.querySelector<HTMLDivElement>('#board-area'), '#board-area');
+const appEl = required(document.querySelector<HTMLDivElement>('#app'), '#app');
 
 const reconnectingBanner = required(
   document.querySelector<HTMLDivElement>('#reconnecting-banner'),
@@ -999,13 +1000,15 @@ for (const btn of dpadButtons) {
   });
 }
 
-// Press-and-drag repositioning for the D-pad -- it's `position: fixed` (see
-// .mobile-dpad in style.css) so it can be moved anywhere over the board
-// instead of being stuck in one spot. A short move threshold distinguishes a
-// drag from a tap: below it, the pointerup's subsequent click reaches the
-// button underneath as normal; past it, `dpadJustDragged` is set so the
-// capture-phase click listener below can swallow that click before it ever
-// reaches the button, so ending a drag never also fires a move.
+// Press-and-drag repositioning for the D-pad -- it's `position: absolute`,
+// positioned relative to #app (see .mobile-dpad/#app in style.css), so it
+// can be moved anywhere over the board instead of being stuck in one spot,
+// while still scrolling along with the board rather than staying glued to
+// the viewport. A short move threshold distinguishes a drag from a tap:
+// below it, the pointerup's subsequent click reaches the button underneath
+// as normal; past it, `dpadJustDragged` is set so the capture-phase click
+// listener below can swallow that click before it ever reaches the button,
+// so ending a drag never also fires a move.
 const DPAD_SIZE = 140;
 const DPAD_DRAG_THRESHOLD = 6;
 const DPAD_POSITION_KEY = 'rr-dpad-position';
@@ -1022,9 +1025,15 @@ interface DpadDragState {
 let dpadDrag: DpadDragState | null = null;
 let dpadJustDragged = false;
 
+// Bounds are #app's own box, not the viewport -- left/top below are
+// #app-relative (see the `absolute`/`relative` positioning in style.css).
+// The vertical max allows the pad to hang half below #app's bottom edge
+// (rather than being forced fully inside it), since #app's height tracks
+// the board almost exactly and a full clamp would prevent the "straddling
+// the board's bottom edge" default position from ever actually straddling.
 function clampDpadPosition(left: number, top: number): { left: number; top: number } {
-  const maxLeft = Math.max(window.innerWidth - DPAD_SIZE, 0);
-  const maxTop = Math.max(window.innerHeight - DPAD_SIZE, 0);
+  const maxLeft = Math.max(appEl.clientWidth - DPAD_SIZE, 0);
+  const maxTop = Math.max(appEl.clientHeight - DPAD_SIZE / 2, 0);
   return { left: Math.min(Math.max(left, 0), maxLeft), top: Math.min(Math.max(top, 0), maxTop) };
 }
 
@@ -1059,8 +1068,7 @@ function restoreDpadPosition(): void {
       return;
     }
   }
-  const boardRect = container.getBoundingClientRect();
-  setDpadPosition(boardRect.left + boardRect.width / 2 - DPAD_SIZE / 2, boardRect.bottom - DPAD_SIZE / 2);
+  setDpadPosition(container.offsetLeft + container.offsetWidth / 2 - DPAD_SIZE / 2, container.offsetTop + container.offsetHeight - DPAD_SIZE / 2);
 }
 restoreDpadPosition();
 window.addEventListener('resize', () => setDpadPosition(mobileDpad.offsetLeft, mobileDpad.offsetTop));
