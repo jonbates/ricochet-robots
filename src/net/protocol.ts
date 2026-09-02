@@ -16,6 +16,18 @@ export interface LobbyPlayer {
   isHost: boolean;
 }
 
+/**
+ * Any peer -> everyone else, sent once when that peer clicks "Exit and
+ * Reset" mid-match -- so the whole room ends together instead of just
+ * quietly dropping one connection, which every other peer would otherwise
+ * treat as a transient disconnect worth waiting out for a rejoin (see
+ * Game.handlePeerLeave/connectedSlots). Carries no data; receiving it at all
+ * is the entire signal. Broadcast peer-to-peer rather than routed through
+ * the host -- Trystero's rooms are a full mesh, so this reaches every peer
+ * (including, for a client-initiated exit, the host) directly.
+ */
+export type LeaveMatchMsg = Record<string, never>;
+
 /** Host -> everyone, whenever the roster or board-variant choice changes. */
 export interface LobbyRosterMsg {
   players: LobbyPlayer[];

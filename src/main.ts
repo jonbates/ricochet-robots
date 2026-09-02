@@ -374,6 +374,7 @@ function wireHostPeerHandlers(newRoom: NetworkRoom): void {
     // Game.handleRename's own doc comment.
     game?.handleRename(ctx.peerId, msg.playerId);
   };
+  newRoom.leaveMatch.onMessage = () => exitMatch();
 }
 
 let roomCodeCopiedTimer: ReturnType<typeof setTimeout> | undefined;
@@ -452,6 +453,7 @@ async function joinRoomWithCode(rawCode: string): Promise<void> {
   newRoom.onPeerLeave((peerId) => {
     game?.handlePeerLeave(peerId);
   });
+  newRoom.leaveMatch.onMessage = () => exitMatch();
   // Send our own chosen name (and stable identity) the moment the host's
   // connection is actually ready (rather than right away, before any peer
   // connection exists yet, which Trystero would just silently drop) -- the
@@ -638,8 +640,15 @@ function exitMatch(): void {
  * absence -- trying to reset it in place here would leave every other
  * closure that already captured the old value (e.g. NetworkContext
  * objects handed to past Game instances) silently out of sync with it.
+ *
+ * Broadcasts LeaveMatchMsg first (awaited, so the reload below can't cut it
+ * off mid-send) -- every other peer's leaveMatch.onMessage runs exitMatch()
+ * in response, so the whole room returns to the start screen together
+ * instead of everyone but the clicker being left mid-match wondering if
+ * this was just a dropped connection worth waiting out.
  */
-function resetAndExit(): void {
+async function resetAndExit(): Promise<void> {
+  if (room) await room.leaveMatch.send({});
   leaveRoom();
   sessionStorage.removeItem(MY_PLAYER_ID_KEY);
   window.location.reload();
@@ -663,7 +672,7 @@ function updateExitButtonForMode(): void {
 
 function handleExitClick(): void {
   if (myRole) {
-    resetAndExit();
+    void resetAndExit();
   } else {
     exitMatch();
   }

@@ -538,8 +538,9 @@ body {
   @apply text-xl tracking-[3px] text-[#4ade80];
 }
 
+/* Same green as the bid countdown's full-time border (#hud-timer/timerBorderColor) -- reusing that color reads as "a good, low-urgency confirmation" rather than introducing a third accent color to the HUD. */
 .lobby-room-code-copied {
-  @apply m-0 -mt-2 text-xs text-[#9db4c9];
+  @apply m-0 px-3 py-2 rounded-lg border-4 border-[#22c55e] text-sm text-[#e8f4ff] text-center;
 }
 
 #lobby-board-select .board-btn {
