@@ -110,27 +110,27 @@ body {
   @apply relative m-1 aspect-square flex-none md:aspect-auto md:flex-1 md:min-h-0;
 }
 
-/* A floating touch D-pad overlaying the board -- arrow keys have no mobile
-   equivalent, and the board itself is for selecting a robot (tap), not
-   sliding one. Visible only on narrow/mobile viewports (a physical keyboard
-   covers this on desktop, via the `md:hidden` folded into this rule) and
-   only while there's actually a move to make; toggled via the `hidden`
-   attribute in main.ts (info.phase !== 'attempting'), which needs its own,
-   more specific rule below to reliably win regardless of viewport width --
-   same reasoning as #hud-timer[hidden] further down.
-   Fixed at bottom-center (not shifted left/right based on the selected
-   robot -- a moving pad was more disorienting than useful, and it's no
-   longer needed to avoid covering a robot anyway, since a tap now clicks
-   through to one sitting underneath, see Game.selectRobotAtPoint), lifted
-   up off the board's own bottom edge so it visibly hovers over the tiles
-   rather than sitting flush against the boundary. rounded-2xl +
-   overflow-hidden gives the whole widget one shared background and softly
-   clips the four buttons' outer corners -- each button itself still fills
-   the full square (see .dpad-btn), so nearly all of that area stays
-   clickable, just its very corner pixels are trimmed for a less blocky
-   look. */
+/* A touch D-pad for sliding robots -- arrow keys have no mobile equivalent,
+   and the board itself is for selecting a robot (tap), not sliding one.
+   Visible only on narrow/mobile viewports (a physical keyboard covers this
+   on desktop, via the `md:hidden` folded into this rule) and only while
+   there's actually a move to make; toggled via the `hidden` attribute in
+   main.ts (info.phase !== 'attempting'), which needs its own, more specific
+   rule below to reliably win regardless of viewport width -- same reasoning
+   as #hud-timer[hidden] further down.
+   Sits in normal document flow just below the board (a sibling of
+   #board-area, not an absolutely-positioned overlay on top of it) --
+   floating it over the board used to hide whatever robot was underneath,
+   and tapping through to that robot (see the removed Game.selectRobotAtPoint)
+   was never reliable enough to fully make up for it. mx-auto centers it
+   under the board; my-2 gives it a little breathing room on both sides.
+   rounded-2xl + overflow-hidden gives the whole widget one shared
+   background and softly clips the four buttons' outer corners -- each
+   button itself still fills the full square (see .dpad-btn), so nearly all
+   of that area stays clickable, just its very corner pixels are trimmed
+   for a less blocky look. */
 .mobile-dpad {
-  @apply absolute bottom-8 left-1/2 -translate-x-1/2 w-[140px] h-[140px] md:hidden rounded-2xl bg-[rgba(58,69,80,0.5)] border-2 border-[#9ca3af] shadow-[0_2px_6px_rgba(0,0,0,0.4)] overflow-hidden;
+  @apply relative mx-auto my-2 w-[140px] h-[140px] md:hidden rounded-2xl bg-[rgba(58,69,80,0.5)] border-2 border-[#9ca3af] shadow-[0_2px_6px_rgba(0,0,0,0.4)] overflow-hidden;
 }
 
 .mobile-dpad[hidden] {

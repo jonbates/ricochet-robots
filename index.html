@@ -22,16 +22,17 @@
           <div id="hud-target-spotlight-slot"></div>
         </div>
       </div>
-      <div id="board-area">
-        <!-- Touch-only substitute for arrow keys -- hidden outside the
-             attempting phase and on desktop (see .mobile-dpad in style.css),
-             since a physical keyboard covers this there. -->
-        <div id="mobile-dpad" class="mobile-dpad" hidden>
-          <button type="button" class="dpad-btn dpad-up" data-direction="N" aria-label="Move up"><span class="dpad-arrow"></span></button>
-          <button type="button" class="dpad-btn dpad-left" data-direction="W" aria-label="Move left"><span class="dpad-arrow"></span></button>
-          <button type="button" class="dpad-btn dpad-right" data-direction="E" aria-label="Move right"><span class="dpad-arrow"></span></button>
-          <button type="button" class="dpad-btn dpad-down" data-direction="S" aria-label="Move down"><span class="dpad-arrow"></span></button>
-        </div>
+      <div id="board-area"></div>
+      <!-- Touch-only substitute for arrow keys -- hidden outside the
+           attempting phase and on desktop (see .mobile-dpad in style.css),
+           since a physical keyboard covers this there. Sits in normal flow
+           just below the board rather than floating over it, so it never
+           obscures a robot a player needs to tap. -->
+      <div id="mobile-dpad" class="mobile-dpad" hidden>
+        <button type="button" class="dpad-btn dpad-up" data-direction="N" aria-label="Move up"><span class="dpad-arrow"></span></button>
+        <button type="button" class="dpad-btn dpad-left" data-direction="W" aria-label="Move left"><span class="dpad-arrow"></span></button>
+        <button type="button" class="dpad-btn dpad-right" data-direction="E" aria-label="Move right"><span class="dpad-arrow"></span></button>
+        <button type="button" class="dpad-btn dpad-down" data-direction="S" aria-label="Move down"><span class="dpad-arrow"></span></button>
       </div>
       <div id="hud-bottom-strip">
         <div id="hud-bottom-strip-inner">

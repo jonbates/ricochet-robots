@@ -130,6 +130,22 @@ export class Game {
   private lastHeartbeatAt = 0;
   /** Whether any peer has revealed the optimal solution this round -- see revealSolution()'s doc comment. Reset wherever a fresh round begins. */
   private revealed = false;
+  /**
+   * Bumped every time computeAndDrawSolution() starts, and every time the
+   * round moves on out from under it (continueToNextRound/resetMatch, or an
+   * applySnapshot that clears `revealed`) -- solve() is async and, on a deep
+   * search, can genuinely still be running when the round changes (a player
+   * can click Continue immediately after Reveal, without waiting; a peer who
+   * never clicked Reveal themselves runs computeAndDrawSolution() entirely
+   * in the background via applySnapshot, with no button-disable to stop
+   * this). Without this guard, that stale solve would finish after the
+   * round had already moved on and paint the *previous* round's solution
+   * path over the new round's board. computeAndDrawSolution() captures the
+   * value at its own start and re-checks it before touching the renderer;
+   * a mismatch means a newer solve or round transition has since claimed
+   * the renderer's solution-path layer, so the stale result is discarded.
+   */
+  private solveGeneration = 0;
 
   constructor(
     container: HTMLElement,
@@ -383,8 +399,14 @@ export class Game {
    * regardless: GameState's own move/isSolved logic has no depth limit at
    * all, this cap only affects whether the solver can *reveal* the answer
    * on request.
+   *
+   * `onProgress`, when given, is called with each depth (1-indexed) as the
+   * search begins exploring it -- see solve()'s own doc comment for why a
+   * long solve needs this. Only meaningful for whichever peer actually
+   * triggered this call; not threaded through the `revealed`-changed path
+   * in applySnapshot, which every *other* peer's own instance runs silently
+   * in the background.
    */
-  /** `onProgress`, when given, is called with each depth (1-indexed) as the search begins exploring it -- see solve()'s own doc comment for why a long solve needs this. Only meaningful for whichever peer actually triggered this call; not threaded through the `revealed`-changed path below, which every *other* peer's own instance runs silently in the background. */
   async revealSolution(onProgress?: (depth: number) => void): Promise<SolveResult | null> {
     const result = await this.computeAndDrawSolution(onProgress);
     this.revealed = true;
@@ -394,8 +416,13 @@ export class Game {
   }
 
   private async computeAndDrawSolution(onProgress?: (depth: number) => void): Promise<SolveResult | null> {
+    const generation = ++this.solveGeneration;
     try {
       const result = await solve(this.board, this.state.roundStartRobots, this.state.target, this.searchDepth, onProgress);
+      // The round may have already moved on while this was still searching
+      // (see solveGeneration's own doc comment) -- a newer solve or round
+      // transition has since claimed the renderer, so leave it alone.
+      if (generation !== this.solveGeneration) return result;
       this.boardRenderer.showSolutionPath(this.pathsForMoves(result.moves));
       // Clears the round's own attempt trail rather than leaving it drawn
       // alongside the optimal one -- the two competing on the board at once
@@ -403,6 +430,7 @@ export class Game {
       this.boardRenderer.clearMoveTrail();
       return result;
     } catch {
+      if (generation !== this.solveGeneration) return null;
       this.boardRenderer.clearSolutionPath();
       return null;
     }
@@ -445,6 +473,7 @@ export class Game {
     }
     this.boardRenderer.clearSolutionPath();
     this.revealed = false;
+    this.solveGeneration++;
     const nextTarget = pickTarget(this.targets, this.state.target);
     this.state.startNextRound(nextTarget);
     this.boardRenderer.setTarget(nextTarget);
@@ -460,6 +489,7 @@ export class Game {
     this.matchOverFired = false;
     this.boardRenderer.clearSolutionPath();
     this.revealed = false;
+    this.solveGeneration++;
     const firstTarget = pickTarget(this.targets, null);
     this.state = new GameState(this.board, randomInitialRobots([firstTarget.cell]), firstTarget, playerNames);
     this.boardRenderer.setTarget(this.state.target);
@@ -488,7 +518,7 @@ export class Game {
     this.handleResize();
   }
 
-  /** Which robot (if any) a screen point should select -- shared by handleClick and selectRobotAtPoint. Pure: no side effects. */
+  /** Which robot (if any) a screen point should select. Pure: no side effects. */
   private robotColorAtPoint(clientX: number, clientY: number): RobotColor | null {
     const rect = this.renderer.domElement.getBoundingClientRect();
     const ndc = new Vector2(
@@ -511,29 +541,6 @@ export class Game {
     else this.state.deselect();
     this.boardRenderer.setSelected(this.state.selected);
     this.broadcastState();
-  }
-
-  /**
-   * Selects whatever robot occupies the board cell under a screen point,
-   * exactly as a direct click on the board would -- used by the mobile
-   * D-pad (see main.ts) to "click through" itself onto a robot sitting
-   * visibly underneath its translucent background, rather than always
-   * treating a tap there as a directional move. Returns false with no side
-   * effect at all (notably, it does *not* deselect) when there's no robot
-   * at that point, so the D-pad can fall back to its own move in that case.
-   */
-  selectRobotAtPoint(clientX: number, clientY: number): boolean {
-    if (this.state.phase !== 'attempting' || !this.canActNow()) return false;
-    const color = this.robotColorAtPoint(clientX, clientY);
-    if (!color) return false;
-    if (this.net.role === 'client') {
-      void this.net.room?.action.send({ type: 'select', color });
-    } else {
-      this.state.select(color);
-      this.boardRenderer.setSelected(this.state.selected);
-      this.broadcastState();
-    }
-    return true;
   }
 
   private handleKeydown(event: KeyboardEvent): void {
@@ -788,7 +795,10 @@ export class Game {
     this.syncRobots();
     if (revealedChanged) {
       if (this.revealed) void this.computeAndDrawSolution();
-      else this.boardRenderer.clearSolutionPath();
+      else {
+        this.boardRenderer.clearSolutionPath();
+        this.solveGeneration++;
+      }
     }
   }
 

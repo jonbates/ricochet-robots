@@ -33,6 +33,7 @@ const hudAttemptStatus = required(
 const hudAttemptBid = required(document.querySelector<HTMLSpanElement>('#hud-attempt-bid'), '#hud-attempt-bid');
 
 const hudLeftTop = required(document.querySelector<HTMLDivElement>('#hud-left-top'), '#hud-left-top');
+const hudLeftBottom = required(document.querySelector<HTMLDivElement>('#hud-left-bottom'), '#hud-left-bottom');
 const hudPlayers = required(document.querySelector<HTMLDivElement>('#hud-players'), '#hud-players');
 const hudTarget = required(document.querySelector<HTMLDivElement>('#hud-target'), '#hud-target');
 const targetSpotlightSlot = required(
@@ -914,6 +915,19 @@ function handleUpdate(info: UpdateInfo): void {
   // D-pad, the attempting panel) stuck in a stale hidden/shown state just
   // because something later in this function throws.
   hudAttempting.hidden = info.phase !== 'attempting';
+  // The active player's own move-count/undo/concede panel jumps to the very
+  // top of the sidebar (ahead of the target/players/round-result panels)
+  // while it's actually relevant, rather than sitting below all of them in
+  // its usual spot near Give Up -- same reparent-on-phase-change trick as
+  // renderTarget's spotlighting below. Restored to its normal position
+  // (right after #hud-give-up, its original markup order) the rest of the
+  // time; it's `hidden` then anyway, so this is just keeping its DOM
+  // position sane rather than anything visible.
+  if (info.phase === 'attempting') {
+    if (hudAttempting.parentElement !== hudLeftTop) hudLeftTop.prepend(hudAttempting);
+  } else if (hudAttempting.parentElement !== hudLeftBottom) {
+    hudGiveUp.after(hudAttempting);
+  }
   mobileDpad.hidden = info.phase !== 'attempting' || !myTurn;
   hudAttemptStatus.hidden = info.phase !== 'attempting';
   hudGiveUp.hidden = info.phase === 'resolved';
@@ -980,12 +994,7 @@ exitMatchBtn.addEventListener('click', handleExitClick);
 for (const btn of dpadButtons) {
   const direction = btn.dataset.direction as Direction;
   btn.addEventListener('click', (e) => {
-    // The D-pad is a translucent overlay -- a robot can visibly sit right
-    // underneath it. If this tap landed on one, select it (as a direct
-    // board tap would) instead of always treating a tap here as a move in
-    // this button's direction.
-    const clickedThroughToRobot = game?.selectRobotAtPoint(e.clientX, e.clientY) ?? false;
-    if (!clickedThroughToRobot) game?.move(direction);
+    game?.move(direction);
     e.stopPropagation();
   });
 }
