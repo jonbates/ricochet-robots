@@ -48,6 +48,9 @@ const targetColorName = required(
 const hudGiveUp = required(document.querySelector<HTMLDivElement>('#hud-give-up'), '#hud-give-up');
 const giveUpBtn = required(document.querySelector<HTMLButtonElement>('#give-up-btn'), '#give-up-btn');
 
+const exitMatchBtn = required(document.querySelector<HTMLButtonElement>('#exit-match-btn'), '#exit-match-btn');
+const resetMatchBtn = required(document.querySelector<HTMLButtonElement>('#reset-match-btn'), '#reset-match-btn');
+
 const mobileDpad = required(document.querySelector<HTMLDivElement>('#mobile-dpad'), '#mobile-dpad');
 const dpadButtons = Array.from(document.querySelectorAll<HTMLButtonElement>('.dpad-btn'));
 
@@ -493,6 +496,7 @@ function beginMultiplayerMatch(msg: StartMatchMsg, initialPeerMap?: ReadonlyMap<
   currentMatchId = msg.matchId;
   lobbyOverlay.classList.remove('visible');
   startOverlay.classList.remove('visible');
+  resetMatchBtn.hidden = false;
   game?.dispose();
   lastPhase = null;
   game = new Game(
@@ -554,6 +558,7 @@ async function restoreHostSession(record: PersistedHostSession): Promise<void> {
     };
     currentPlayerNames = record.startMsg.playerNames;
     startOverlay.classList.remove('visible');
+    resetMatchBtn.hidden = false;
     lastPhase = null;
     game = new Game(
       container,
@@ -586,6 +591,41 @@ function backToStartOverlay(): void {
   leaveRoom();
   lobbyOverlay.classList.remove('visible');
   startOverlay.classList.add('visible');
+}
+
+/**
+ * Leaves any active match/room, clears the persisted session, and returns
+ * to the start screen -- wired to the "Exit" button, present for every
+ * match (local hot-seat or networked). leaveRoom() is a no-op for local
+ * play (room/myRole are already null there), so this same function works
+ * unconditionally for both.
+ */
+function exitMatch(): void {
+  leaveRoom();
+  game?.dispose();
+  game = null;
+  lastPhase = null;
+  resetMatchBtn.hidden = true;
+  matchOverOverlay.classList.remove('visible');
+  lobbyOverlay.classList.remove('visible');
+  startOverlay.classList.add('visible');
+}
+
+/**
+ * Networked matches only (resetMatchBtn stays hidden for local hot-seat
+ * play, which has no persisted session or player identity for this to
+ * usefully wipe) -- does everything exitMatch() does, plus clears this
+ * tab's stable player identity (myPlayerId, see its own doc comment).
+ * Reloads the page afterward: myPlayerId is a module-level constant
+ * captured once at load, so nothing short of a fresh load can pick up its
+ * absence -- trying to reset it in place here would leave every other
+ * closure that already captured the old value (e.g. NetworkContext
+ * objects handed to past Game instances) silently out of sync with it.
+ */
+function resetAndExit(): void {
+  leaveRoom();
+  sessionStorage.removeItem(MY_PLAYER_ID_KEY);
+  window.location.reload();
 }
 
 function updatePlayerNameInputVisibility(): void {
@@ -863,6 +903,7 @@ function startGame(variantId: BoardVariantId): void {
   currentPlayerNames = currentPlayerSetup();
   game?.dispose();
   lastPhase = null;
+  resetMatchBtn.hidden = true;
   game = new Game(
     container,
     variantId,
@@ -885,6 +926,8 @@ endCountdownBtn.addEventListener('click', () => game?.endCountdownEarly());
 giveUpBtn.addEventListener('click', () => game?.giveUpRound());
 undoBtn.addEventListener('click', () => game?.undo());
 concedeBtn.addEventListener('click', () => game?.concede());
+exitMatchBtn.addEventListener('click', exitMatch);
+resetMatchBtn.addEventListener('click', resetAndExit);
 for (const btn of dpadButtons) {
   const direction = btn.dataset.direction as Direction;
   btn.addEventListener('click', (e) => {
