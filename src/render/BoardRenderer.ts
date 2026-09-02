@@ -79,6 +79,8 @@ const SOLUTION_DASH_GAP = 0.12;
 const SOLUTION_DASH_WIDTH = 0.05;
 const SOLUTION_ARROW_LENGTH = 0.26;
 const SOLUTION_ARROW_WIDTH = 0.22;
+const SOLUTION_SHADOW_PAD = 0.044; // extra length/width baked into the dark shadow copy of each dash/arrow, so it peeks out from under the colored one on every side
+const SOLUTION_SHADOW_Y = SOLUTION_PATH_Y - 0.01; // just beneath the colored dashes/arrows, so it reads as a shadow rather than fighting them for depth
 const SOLUTION_JITTER_STEP = 0.07; // sideways offset per move, so overlapping moves (a later one retracing an earlier one's cells) run side by side instead of exactly on top of each other
 const SOLUTION_JITTER_CYCLE = 5; // offsets cycle through a small +/- range rather than drifting further apart with every extra move in a long solution
 const TRAIL_LABEL_RADIUS = 0.32;
@@ -188,6 +190,10 @@ function buildNumberLabelTexture(n: number, hexColor: number): CanvasTexture {
   ctx.lineWidth = 6;
   ctx.strokeStyle = '#ffffff';
   ctx.stroke();
+  ctx.beginPath();
+  ctx.arc(size / 2, size / 2, (size / 4) * 1.21, 0, Math.PI * 2);
+  ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
+  ctx.fill();
   ctx.fillStyle = '#ffffff';
   ctx.font = 'bold 64px system-ui, sans-serif';
   ctx.textAlign = 'center';
@@ -609,6 +615,9 @@ export class BoardRenderer {
   private drawDashedMoves(group: Group, moves: readonly { color: RobotColor; path: readonly Cell[] }[], numbered: boolean): void {
     const dashGeometry = buildFlatRectGeometry(SOLUTION_DASH_LENGTH, SOLUTION_DASH_WIDTH);
     const arrowGeometry = buildFlatArrowGeometry(SOLUTION_ARROW_LENGTH, SOLUTION_ARROW_WIDTH);
+    const dashShadowGeometry = buildFlatRectGeometry(SOLUTION_DASH_LENGTH + SOLUTION_SHADOW_PAD, SOLUTION_DASH_WIDTH + SOLUTION_SHADOW_PAD);
+    const arrowShadowGeometry = buildFlatArrowGeometry(SOLUTION_ARROW_LENGTH + SOLUTION_SHADOW_PAD, SOLUTION_ARROW_WIDTH + SOLUTION_SHADOW_PAD);
+    const shadowMaterial = new MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.7, side: DoubleSide, depthWrite: false });
 
     moves.forEach((move, moveIndex) => {
       const material = new MeshBasicMaterial({ color: ROBOT_HEX[move.color], side: DoubleSide });
@@ -628,8 +637,16 @@ export class BoardRenderer {
         const dashCount = Math.max(1, Math.round(length / (SOLUTION_DASH_LENGTH + SOLUTION_DASH_GAP)));
         for (let d = 0; d < dashCount; d++) {
           const t = (d + 0.5) / dashCount; // centers each dash within its own slot along the run
+          const dashX = run.a.x + (run.b.x - run.a.x) * t + perpX;
+          const dashZ = run.a.z + (run.b.z - run.a.z) * t + perpZ;
+
+          const shadow = new Mesh(dashShadowGeometry, shadowMaterial);
+          shadow.position.set(dashX, SOLUTION_SHADOW_Y, dashZ);
+          shadow.rotation.y = angle;
+          group.add(shadow);
+
           const dash = new Mesh(dashGeometry, material);
-          dash.position.set(run.a.x + (run.b.x - run.a.x) * t + perpX, SOLUTION_PATH_Y, run.a.z + (run.b.z - run.a.z) * t + perpZ);
+          dash.position.set(dashX, SOLUTION_PATH_Y, dashZ);
           dash.rotation.y = angle;
           group.add(dash);
         }
@@ -648,9 +665,16 @@ export class BoardRenderer {
       if (lastRun) {
         const perpX = -lastRun.dr * jitter;
         const perpZ = lastRun.dc * jitter;
+        const arrowAngle = directionAngle(lastRun.dc, lastRun.dr);
+
+        const arrowShadow = new Mesh(arrowShadowGeometry, shadowMaterial);
+        arrowShadow.position.set(lastRun.b.x + perpX, SOLUTION_SHADOW_Y, lastRun.b.z + perpZ);
+        arrowShadow.rotation.y = arrowAngle;
+        group.add(arrowShadow);
+
         const arrow = new Mesh(arrowGeometry, material);
         arrow.position.set(lastRun.b.x + perpX, SOLUTION_PATH_Y, lastRun.b.z + perpZ);
-        arrow.rotation.y = directionAngle(lastRun.dc, lastRun.dr);
+        arrow.rotation.y = arrowAngle;
         group.add(arrow);
       }
     });
