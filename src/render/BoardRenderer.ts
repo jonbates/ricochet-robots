@@ -819,6 +819,15 @@ export class BoardRenderer {
     this.applyAspect(width / height);
   }
 
+  /** Undoes whatever an orbit-debug camera (see Game.ts's 'o' toggle) did to position/up/zoom, restoring the fixed top-down view normal play expects -- mirrors the camera setup in the constructor above. */
+  resetCameraToTopDown(): void {
+    this.camera.position.set(0, 30, 0);
+    this.camera.up.set(0, 0, -1);
+    this.camera.zoom = 1;
+    this.camera.lookAt(0, 0, 0);
+    this.camera.updateProjectionMatrix();
+  }
+
   /**
    * A container wider than tall (aspect >= 1 -- the desktop case, once the
    * left HUD sidebar takes a fixed width and the board gets whatever's

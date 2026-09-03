@@ -1,4 +1,5 @@
 import { Vector2, VSMShadowMap, WebGLRenderer } from 'three';
+import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { Board, type Cell, cellKey, type Direction, ROBOT_COLORS, type RobotColor, sameCell } from './board/Board';
 import { buildBoardVariant, type BoardVariantId, type QuadrantAssignment, randomInitialRobots, type Target } from './board/BoardLayout';
 import { type Bid, GameState, type Player, type RobotPositions, type RoundPhase } from './game/GameState';
@@ -109,6 +110,8 @@ export class Game {
   private readonly targets: readonly Target[];
   private readonly renderer: WebGLRenderer;
   private readonly boardRenderer: BoardRenderer;
+  /** Lazily created the first time the 'o' debug shortcut is pressed -- lets a dev drag/scroll to look at the board from an angle instead of the fixed top-down view. See handleKeydown(). */
+  private orbitControls: OrbitControls | null = null;
   private readonly resizeObserver: ResizeObserver;
   private readonly searchDepth: number;
   private readonly net: NetworkContext;
@@ -268,6 +271,7 @@ export class Game {
         this.maybeBroadcastHeartbeat();
       }
 
+      if (this.orbitControls?.enabled) this.orbitControls.update();
       this.renderer.render(this.boardRenderer.scene, this.boardRenderer.camera);
       this.emitUpdate();
       this.scheduleNextFrame(loop);
@@ -314,6 +318,7 @@ export class Game {
     document.removeEventListener('visibilitychange', this.handleVisibilityChange);
     window.removeEventListener('keydown', this.handleKeydown);
     this.renderer.domElement.removeEventListener('click', this.handleClick);
+    this.orbitControls?.dispose();
     this.renderer.dispose();
     this.container.removeChild(this.renderer.domElement);
   }
@@ -558,6 +563,19 @@ export class Game {
       return;
     }
     if (event.key === 'z' || event.key === 'Z') this.undo();
+    if (event.key === 'o' || event.key === 'O') this.toggleOrbitDebug();
+  }
+
+  /** Dev-only 3D view toggle (the 'o' key) -- swaps the fixed top-down camera for a freely orbitable one over the same scene, so the lighting/shadow work is actually inspectable from an angle. Purely a look-around aid: board clicks still raycast through whatever the camera currently sees, so selecting a robot while orbited is unreliable and not a real supported mode. */
+  private toggleOrbitDebug(): void {
+    if (!this.orbitControls) {
+      this.orbitControls = new OrbitControls(this.boardRenderer.camera, this.renderer.domElement);
+      this.orbitControls.target.set(0, 0, 0);
+      this.orbitControls.enableDamping = true;
+      return; // OrbitControls already starts out enabled -- nothing left to flip on this first press
+    }
+    this.orbitControls.enabled = !this.orbitControls.enabled;
+    if (!this.orbitControls.enabled) this.boardRenderer.resetCameraToTopDown();
   }
 
   /** Attempts to slide the currently selected robot one step in `direction` -- shared by arrow-key input and the on-screen mobile D-pad (see main.ts). No-op if it isn't this instance's turn (see canActNow) or no robot is selected. */
