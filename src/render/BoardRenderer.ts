@@ -43,7 +43,7 @@ const VAULT_COLOR = 0x1a1a2e;
 const TILE_TOP = 0; // world Y of the playable tile surface
 const WALL_HEIGHT = 0.36;
 const ROBOT_RADIUS = 0.32;
-const ROBOT_HEIGHT = 0.4;
+const ROBOT_HEIGHT = 0.52;
 const ROBOT_SIDES = 24; // smooth circle -- that outline is reserved for robots; target icons use stars/squares/etc instead, so the two never look alike
 const ROBOT_DOME_RADIUS = 0.18;
 const ROBOT_DOME_DARKEN = 0.55; // how much darker than the body the top "dome" decal is
@@ -86,7 +86,7 @@ const SOLUTION_ARROW_PULLBACK = 1; // one board square -- the arrowhead would ot
 const SOLUTION_JITTER_STEP = 0.07; // sideways offset per move, so overlapping moves (a later one retracing an earlier one's cells) run side by side instead of exactly on top of each other
 const SOLUTION_JITTER_CYCLE = 5; // offsets cycle through a small +/- range rather than drifting further apart with every extra move in a long solution
 const TRAIL_LABEL_RADIUS = 0.32;
-// Above ROBOT_HEIGHT (0.4), not just the dash/arrow layer -- a revealed
+// Above ROBOT_HEIGHT, not just the dash/arrow layer -- a revealed
 // solution's first move for any given robot starts from that robot's real,
 // not-yet-"moved" board position, so its number badge lands directly under
 // the robot's own opaque cylinder body. From this straight-down camera,
@@ -94,8 +94,10 @@ const TRAIL_LABEL_RADIUS = 0.32;
 // hidden, not just visually layered under it -- every subsequent move for
 // that same robot is fine (its simulated position has diverged from the
 // real one by then), but the very first one for each robot in the solution
-// needs to clear the robot's own height to ever be visible at all.
-const TRAIL_LABEL_Y = 0.41;
+// needs to clear the robot's own height to ever be visible at all. Derived
+// from ROBOT_HEIGHT rather than hardcoded so that resizing the robots can't
+// silently sink these badges back underneath them.
+const TRAIL_LABEL_Y = ROBOT_HEIGHT + 0.01;
 
 /** A flat, unlit shape geometry for a target icon -- square/diamond/triangle come "for free" out of a low-segment CircleGeometry with a chosen starting angle; the star and the warp target's swirl need real outlines. Deliberately no smooth-circle icon shape -- that outline is reserved for robots (see buildRobots), so a target is never visually confused with one. */
 function buildIconGeometry(shape: TargetShape): BufferGeometry {
@@ -346,7 +348,7 @@ export class BoardRenderer {
     // and the robot's own decorative base ring (buildRobots' ROBOT_RING,
     // out to radius 0.42) already covers a shallow-angle shadow almost
     // entirely, leaving nothing visibly poking out. This angle keeps that
-    // translation past the ring for the ROBOT_HEIGHT=0.4 cylinders.
+    // translation past the ring for the ROBOT_HEIGHT-tall cylinders.
     const sun = new DirectionalLight(0xffffff, 0.75);
     sun.position.set(9, 10, 9);
     sun.castShadow = true;
@@ -509,8 +511,8 @@ export class BoardRenderer {
     for (const color of ROBOT_COLORS) {
       const material = new MeshStandardMaterial({
         color: ROBOT_HEX[color],
-        metalness: 0.8,
-        roughness: 0.3,
+        metalness: 0.9,
+        roughness: 0.1,
         emissive: ROBOT_HEX[color],
         emissiveIntensity: ROBOT_EMISSIVE_INTENSITY,
       });
@@ -524,8 +526,8 @@ export class BoardRenderer {
 
       const domeMaterial = new MeshStandardMaterial({
         color: darkenHex(ROBOT_HEX[color], ROBOT_DOME_DARKEN),
-        metalness: 0.8,
-        roughness: 0.3,
+        metalness: 0.9,
+        roughness: 0.1,
       });
       const dome = new Mesh(domeGeometry, domeMaterial);
       dome.rotation.x = -Math.PI / 2;
