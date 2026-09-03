@@ -524,10 +524,19 @@ export class BoardRenderer {
       mesh.receiveShadow = true;
       mesh.position.y = ROBOT_HEIGHT / 2;
 
+      // Emissive-tinted on the same terms as the body above, or it renders
+      // essentially black: at this metalness there's near-zero diffuse, and
+      // with no environment map a mirror-like metal has nothing to reflect.
+      // Feeding it its own already-darkened color keeps the dome reading as
+      // a darker accent (ROBOT_DOME_DARKEN of the body's brightness) rather
+      // than flattening it to match the body.
+      const domeColor = darkenHex(ROBOT_HEX[color], ROBOT_DOME_DARKEN);
       const domeMaterial = new MeshStandardMaterial({
-        color: darkenHex(ROBOT_HEX[color], ROBOT_DOME_DARKEN),
+        color: domeColor,
         metalness: 0.9,
         roughness: 0.1,
+        emissive: domeColor,
+        emissiveIntensity: ROBOT_EMISSIVE_INTENSITY,
       });
       const dome = new Mesh(domeGeometry, domeMaterial);
       dome.rotation.x = -Math.PI / 2;
