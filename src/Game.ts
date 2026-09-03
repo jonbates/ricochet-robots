@@ -102,6 +102,10 @@ const KEY_TO_DIRECTION: Record<string, Direction> = {
   ArrowRight: 'E',
 };
 
+/** How long a single touch has to stay down on the board, without moving more than LONG_PRESS_MOVE_TOLERANCE_PX, before it's treated as a long-press rather than a tap or the start of a scroll -- see handleTouchStart(). */
+const LONG_PRESS_MS = 500;
+const LONG_PRESS_MOVE_TOLERANCE_PX = 10;
+
 /** Orchestrates input -> GameState -> BoardRenderer, and the bidding/attempting/resolved round lifecycle. */
 export class Game {
   private readonly container: HTMLElement;
@@ -111,18 +115,26 @@ export class Game {
   private readonly renderer: WebGLRenderer;
   private readonly boardRenderer: BoardRenderer;
   /**
-   * Lazily created the first time the 'o' debug shortcut is pressed -- lets
-   * a dev drag/scroll to look at the board from an angle instead of the
-   * fixed top-down view. See handleKeydown().
+   * Lazily created the first time the 'o' key is pressed, or the board is
+   * long-pressed on a touch device -- lets the board be dragged/rotated to
+   * look at it from an angle instead of the fixed top-down view. See
+   * handleKeydown() and handleTouchStart()/toggleOrbitDebug().
    *
    * TrackballControls rather than OrbitControls: OrbitControls pins the
    * camera's up vector, so it only ever orbits around two axes (azimuth and
    * polar angle) -- there's no way to roll it, so a drag can never produce
    * rotation around the camera's own view (Z) axis. TrackballControls has
    * no such constraint; it freely rotates object.up along with the camera's
-   * position on every drag, which is what actually gets all three axes.
+   * position on every drag, which is what actually gets all three axes. It
+   * also already handles single-touch drag-to-rotate and pinch-to-zoom on
+   * its own, so the long-press gesture only needs to actually enable it.
    */
   private orbitControls: TrackballControls | null = null;
+  /** Set while a single touch is down on the board and hasn't yet moved more than LONG_PRESS_MOVE_TOLERANCE_PX -- see handleTouchStart()/handleTouchMove(). */
+  private longPressTimer: number | null = null;
+  private longPressStart: { x: number; y: number } | null = null;
+  /** Suppresses the native long-press context menu (copy/save image, etc.) a touch browser would otherwise show over the board -- an arrow field rather than a bound method since it needs no instance state of its own. */
+  private readonly preventContextMenu = (event: Event) => event.preventDefault();
   private readonly resizeObserver: ResizeObserver;
   private readonly searchDepth: number;
   private readonly net: NetworkContext;
@@ -211,6 +223,9 @@ export class Game {
     this.handleClick = this.handleClick.bind(this);
     this.handleKeydown = this.handleKeydown.bind(this);
     this.handleVisibilityChange = this.handleVisibilityChange.bind(this);
+    this.handleTouchStart = this.handleTouchStart.bind(this);
+    this.handleTouchMove = this.handleTouchMove.bind(this);
+    this.handleTouchEnd = this.handleTouchEnd.bind(this);
 
     // A ResizeObserver on the container itself, not a `window` resize
     // listener -- #board-area's own on-screen size can change for reasons
@@ -226,6 +241,11 @@ export class Game {
     this.resizeObserver = new ResizeObserver(this.handleResize);
     this.resizeObserver.observe(this.container);
     this.renderer.domElement.addEventListener('click', this.handleClick);
+    this.renderer.domElement.addEventListener('touchstart', this.handleTouchStart);
+    this.renderer.domElement.addEventListener('touchmove', this.handleTouchMove);
+    this.renderer.domElement.addEventListener('touchend', this.handleTouchEnd);
+    this.renderer.domElement.addEventListener('touchcancel', this.handleTouchEnd);
+    this.renderer.domElement.addEventListener('contextmenu', this.preventContextMenu);
     window.addEventListener('keydown', this.handleKeydown);
     // A backgrounded tab can suspend ResizeObserver notifications (and
     // rAF) same as it suspends the render loop itself -- if the container
@@ -332,6 +352,12 @@ export class Game {
     document.removeEventListener('visibilitychange', this.handleVisibilityChange);
     window.removeEventListener('keydown', this.handleKeydown);
     this.renderer.domElement.removeEventListener('click', this.handleClick);
+    this.renderer.domElement.removeEventListener('touchstart', this.handleTouchStart);
+    this.renderer.domElement.removeEventListener('touchmove', this.handleTouchMove);
+    this.renderer.domElement.removeEventListener('touchend', this.handleTouchEnd);
+    this.renderer.domElement.removeEventListener('touchcancel', this.handleTouchEnd);
+    this.renderer.domElement.removeEventListener('contextmenu', this.preventContextMenu);
+    this.cancelLongPress();
     this.orbitControls?.dispose();
     this.renderer.dispose();
     this.container.removeChild(this.renderer.domElement);
@@ -580,7 +606,7 @@ export class Game {
     if (event.key === 'o' || event.key === 'O') this.toggleOrbitDebug();
   }
 
-  /** Dev-only 3D view toggle (the 'o' key) -- swaps the fixed top-down camera for a freely rotatable one over the same scene (rotation on all 3 axes, roll included -- see the orbitControls field doc above), so the lighting/shadow work is actually inspectable from any angle. Purely a look-around aid: board clicks still raycast through whatever the camera currently sees, so selecting a robot while orbited is unreliable and not a real supported mode. */
+  /** 3D view toggle -- the 'o' key on desktop, or a long-press on the board on a touch device (see handleTouchStart) -- swaps the fixed top-down camera for a freely rotatable one over the same scene (rotation on all 3 axes, roll included -- see the orbitControls field doc above), so the lighting/shadow work is actually inspectable from any angle. Purely a look-around aid: board clicks/taps still raycast through whatever the camera currently sees, so selecting a robot while orbited is unreliable and not a real supported mode. */
   private toggleOrbitDebug(): void {
     if (!this.orbitControls) {
       this.orbitControls = new TrackballControls(this.boardRenderer.camera, this.renderer.domElement);
@@ -589,6 +615,50 @@ export class Game {
     }
     this.orbitControls.enabled = !this.orbitControls.enabled;
     if (!this.orbitControls.enabled) this.boardRenderer.resetCameraToTopDown();
+  }
+
+  /**
+   * Starts timing a potential long-press -- a single touch that stays down
+   * for LONG_PRESS_MS without moving more than LONG_PRESS_MOVE_TOLERANCE_PX
+   * toggles orbit mode (see toggleOrbitDebug()), same as the 'o' key does on
+   * desktop. Ignored for multi-touch (pinch-to-zoom, once orbiting, is a
+   * TrackballControls gesture, not a long-press candidate).
+   */
+  private handleTouchStart(event: TouchEvent): void {
+    if (event.touches.length !== 1) {
+      this.cancelLongPress();
+      return;
+    }
+    const touch = event.touches[0];
+    this.longPressStart = { x: touch.clientX, y: touch.clientY };
+    this.longPressTimer = window.setTimeout(() => {
+      this.longPressTimer = null;
+      this.toggleOrbitDebug();
+    }, LONG_PRESS_MS);
+  }
+
+  /** Cancels the pending long-press once the touch has moved far enough that it reads as a drag/scroll instead of a hold -- e.g. once orbit mode is already on, this is exactly what lets a normal rotate-drag proceed without also re-triggering the toggle. */
+  private handleTouchMove(event: TouchEvent): void {
+    if (!this.longPressStart || event.touches.length !== 1) {
+      this.cancelLongPress();
+      return;
+    }
+    const touch = event.touches[0];
+    const dx = touch.clientX - this.longPressStart.x;
+    const dy = touch.clientY - this.longPressStart.y;
+    if (Math.hypot(dx, dy) > LONG_PRESS_MOVE_TOLERANCE_PX) this.cancelLongPress();
+  }
+
+  private handleTouchEnd(): void {
+    this.cancelLongPress();
+  }
+
+  private cancelLongPress(): void {
+    if (this.longPressTimer !== null) {
+      window.clearTimeout(this.longPressTimer);
+      this.longPressTimer = null;
+    }
+    this.longPressStart = null;
   }
 
   /** Attempts to slide the currently selected robot one step in `direction` -- shared by arrow-key input and the on-screen mobile D-pad (see main.ts). No-op if it isn't this instance's turn (see canActNow) or no robot is selected. */
