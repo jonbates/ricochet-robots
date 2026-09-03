@@ -1,5 +1,5 @@
 import { Vector2, VSMShadowMap, WebGLRenderer } from 'three';
-import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
+import { TrackballControls } from 'three/examples/jsm/controls/TrackballControls.js';
 import { Board, type Cell, cellKey, type Direction, ROBOT_COLORS, type RobotColor, sameCell } from './board/Board';
 import { buildBoardVariant, type BoardVariantId, type QuadrantAssignment, randomInitialRobots, type Target } from './board/BoardLayout';
 import { type Bid, GameState, type Player, type RobotPositions, type RoundPhase } from './game/GameState';
@@ -110,8 +110,19 @@ export class Game {
   private readonly targets: readonly Target[];
   private readonly renderer: WebGLRenderer;
   private readonly boardRenderer: BoardRenderer;
-  /** Lazily created the first time the 'o' debug shortcut is pressed -- lets a dev drag/scroll to look at the board from an angle instead of the fixed top-down view. See handleKeydown(). */
-  private orbitControls: OrbitControls | null = null;
+  /**
+   * Lazily created the first time the 'o' debug shortcut is pressed -- lets
+   * a dev drag/scroll to look at the board from an angle instead of the
+   * fixed top-down view. See handleKeydown().
+   *
+   * TrackballControls rather than OrbitControls: OrbitControls pins the
+   * camera's up vector, so it only ever orbits around two axes (azimuth and
+   * polar angle) -- there's no way to roll it, so a drag can never produce
+   * rotation around the camera's own view (Z) axis. TrackballControls has
+   * no such constraint; it freely rotates object.up along with the camera's
+   * position on every drag, which is what actually gets all three axes.
+   */
+  private orbitControls: TrackballControls | null = null;
   private readonly resizeObserver: ResizeObserver;
   private readonly searchDepth: number;
   private readonly net: NetworkContext;
@@ -566,13 +577,12 @@ export class Game {
     if (event.key === 'o' || event.key === 'O') this.toggleOrbitDebug();
   }
 
-  /** Dev-only 3D view toggle (the 'o' key) -- swaps the fixed top-down camera for a freely orbitable one over the same scene, so the lighting/shadow work is actually inspectable from an angle. Purely a look-around aid: board clicks still raycast through whatever the camera currently sees, so selecting a robot while orbited is unreliable and not a real supported mode. */
+  /** Dev-only 3D view toggle (the 'o' key) -- swaps the fixed top-down camera for a freely rotatable one over the same scene (rotation on all 3 axes, roll included -- see the orbitControls field doc above), so the lighting/shadow work is actually inspectable from any angle. Purely a look-around aid: board clicks still raycast through whatever the camera currently sees, so selecting a robot while orbited is unreliable and not a real supported mode. */
   private toggleOrbitDebug(): void {
     if (!this.orbitControls) {
-      this.orbitControls = new OrbitControls(this.boardRenderer.camera, this.renderer.domElement);
+      this.orbitControls = new TrackballControls(this.boardRenderer.camera, this.renderer.domElement);
       this.orbitControls.target.set(0, 0, 0);
-      this.orbitControls.enableDamping = true;
-      return; // OrbitControls already starts out enabled -- nothing left to flip on this first press
+      return; // TrackballControls already starts out enabled -- nothing left to flip on this first press
     }
     this.orbitControls.enabled = !this.orbitControls.enabled;
     if (!this.orbitControls.enabled) this.boardRenderer.resetCameraToTopDown();
