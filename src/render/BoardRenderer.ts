@@ -34,7 +34,7 @@ import { BOARD_SIZE, type Board, type Cell, cellKey, ROBOT_COLORS, type RobotCol
 import { VAULT_CELLS } from '../board/BoardLayout';
 import type { RobotPositions } from '../game/GameState';
 import type { Target, TargetShape } from '../board/BoardLayout';
-import { darkenHex, lightenHex, ROBOT_HEX, targetColorHex, WARP_SECONDARY_HEX } from '../colors';
+import { darkenHex, lightenHex, mixHex, ROBOT_HEX, targetColorHex, WARP_SECONDARY_HEX } from '../colors';
 
 const TILE_LIGHT = 0xeef2f6;
 const TILE_DARK = 0xdbe3ea;
@@ -86,6 +86,13 @@ const TARGET_LIGHT_COLOR = 0xfff2cc;
 const TARGET_LIGHT_INTENSITY = 3.5;
 const TARGET_LIGHT_DISTANCE = 2.6;
 const TARGET_LIGHT_Y = 1.1;
+/** How much of the target's own color bleeds into its spotlight -- kept low so the light still reads as warm white with a hint of the target's hue, not a flat color wash. */
+const TARGET_LIGHT_TINT = 0.35;
+/** Revolutions each warp-target swirl arm makes from center to rim -- higher winds the vortex tighter. */
+const WARP_SWIRL_TURNS = 2.4;
+/** Rim-end stroke widths of the two swirl arms (see buildIconMesh) -- the secondary arm stays a touch thinner than the primary so the two strands stay visually distinct instead of reading as one doubled-up ribbon. */
+const WARP_SWIRL_PRIMARY_WIDTH = 0.22;
+const WARP_SWIRL_SECONDARY_WIDTH = 0.19;
 const VAULT_ICON_Y = 0.13; // sits on top of the vault box (height 0.12)
 const SOLUTION_PATH_Y = 0.09;
 const SOLUTION_DASH_LENGTH = 0.16;
@@ -127,7 +134,7 @@ function buildIconGeometry(shape: TargetShape): BufferGeometry {
     case 'triangle':
       return new CircleGeometry(0.3, 3);
     case 'swirl':
-      return buildSwirlGeometry(0.32, 1.6, 0.16, 40);
+      return buildSwirlGeometry(0.32, WARP_SWIRL_TURNS, WARP_SWIRL_PRIMARY_WIDTH, 60);
   }
 }
 
@@ -594,11 +601,11 @@ export class BoardRenderer {
       // reads as two interleaved strands rather than one flat purple shape.
       const group = new Group();
       const primary = new Mesh(
-        buildSwirlGeometry(0.32, 1.6, 0.16, 40),
+        buildSwirlGeometry(0.32, WARP_SWIRL_TURNS, WARP_SWIRL_PRIMARY_WIDTH, 60),
         new MeshBasicMaterial({ color: targetColorHex(target.color), side: DoubleSide }),
       );
       const secondary = new Mesh(
-        buildSwirlGeometry(0.32, 1.6, 0.14, 40, Math.PI),
+        buildSwirlGeometry(0.32, WARP_SWIRL_TURNS, WARP_SWIRL_SECONDARY_WIDTH, 60, Math.PI),
         new MeshBasicMaterial({ color: WARP_SECONDARY_HEX, side: DoubleSide }),
       );
       primary.rotation.x = -Math.PI / 2;
@@ -700,6 +707,7 @@ export class BoardRenderer {
     this.activeTargetHighlight.position.z = z;
     this.targetLight.position.x = x;
     this.targetLight.position.z = z;
+    this.targetLight.color.setHex(mixHex(TARGET_LIGHT_COLOR, targetColorHex(target.color), TARGET_LIGHT_TINT));
 
     if (this.vaultIconMesh) {
       this.vaultIconGroup.remove(this.vaultIconMesh);

@@ -42,3 +42,11 @@ export function lightenHex(hex: number, factor: number): number {
   const b = Math.round((hex & 0xff) + (0xff - (hex & 0xff)) * factor);
   return (r << 16) | (g << 8) | b;
 }
+
+/** Linearly interpolates each channel between two hex colors -- `amount` of 0 is `from`, 1 is `to`. */
+export function mixHex(from: number, to: number, amount: number): number {
+  const r = Math.round(((from >> 16) & 0xff) + (((to >> 16) & 0xff) - ((from >> 16) & 0xff)) * amount);
+  const g = Math.round(((from >> 8) & 0xff) + (((to >> 8) & 0xff) - ((from >> 8) & 0xff)) * amount);
+  const b = Math.round((from & 0xff) + ((to & 0xff) - (from & 0xff)) * amount);
+  return (r << 16) | (g << 8) | b;
+}
