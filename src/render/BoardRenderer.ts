@@ -37,7 +37,7 @@ import { darkenHex, lightenHex, ROBOT_HEX, targetColorHex, WARP_SECONDARY_HEX } 
 
 const TILE_LIGHT = 0xeef2f6;
 const TILE_DARK = 0xdbe3ea;
-const WALL_COLOR = 0x2c3e50;
+const WALL_COLOR = 0x64748b;
 const VAULT_COLOR = 0x1a1a2e;
 
 const TILE_TOP = 0; // world Y of the playable tile surface
