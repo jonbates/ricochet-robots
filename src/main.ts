@@ -111,6 +111,12 @@ const matchOverOverlay = required(document.querySelector<HTMLDivElement>('#match
 const matchOverTitle = required(document.querySelector<HTMLHeadingElement>('#match-over-title'), '#match-over-title');
 const playAgainBtn = required(document.querySelector<HTMLButtonElement>('#play-again-btn'), '#play-again-btn');
 
+const exitConfirmOverlay = required(document.querySelector<HTMLDivElement>('#exit-confirm-overlay'), '#exit-confirm-overlay');
+const exitConfirmTitle = required(document.querySelector<HTMLHeadingElement>('#exit-confirm-title'), '#exit-confirm-title');
+const exitConfirmDetail = required(document.querySelector<HTMLParagraphElement>('#exit-confirm-detail'), '#exit-confirm-detail');
+const exitConfirmBtn = required(document.querySelector<HTMLButtonElement>('#exit-confirm-btn'), '#exit-confirm-btn');
+const exitCancelBtn = required(document.querySelector<HTMLButtonElement>('#exit-cancel-btn'), '#exit-cancel-btn');
+
 const playOnlineBtn = required(document.querySelector<HTMLButtonElement>('#play-online-btn'), '#play-online-btn');
 const lobbyOverlay = required(document.querySelector<HTMLDivElement>('#lobby-overlay'), '#lobby-overlay');
 const lobbyModeSelect = required(document.querySelector<HTMLDivElement>('#lobby-mode-select'), '#lobby-mode-select');
@@ -672,7 +678,34 @@ function updateExitButtonForMode(): void {
   }
 }
 
+/**
+ * Confirms before actually leaving -- exitMatch()/resetAndExit() are both
+ * hard to undo mid-round (a local exit drops the current attempt/bid state;
+ * a networked reset also clears this device's saved player identity), so
+ * the exit-confirm-overlay asks first rather than acting on the initial
+ * click. Its title/detail/confirm-button text match whichever of the two
+ * behaviors this click would have triggered directly.
+ */
 function handleExitClick(): void {
+  if (myRole) {
+    exitConfirmTitle.textContent = 'Exit and reset?';
+    exitConfirmDetail.textContent =
+      "You'll leave the room, and this device will forget its saved player identity for this match.";
+    exitConfirmBtn.textContent = 'Exit and Reset';
+  } else {
+    exitConfirmTitle.textContent = 'Exit the match?';
+    exitConfirmDetail.textContent = "You'll return to the start screen. The current round's progress will be lost.";
+    exitConfirmBtn.textContent = 'Exit';
+  }
+  exitConfirmOverlay.classList.add('visible');
+}
+
+function hideExitConfirm(): void {
+  exitConfirmOverlay.classList.remove('visible');
+}
+
+function handleExitConfirmed(): void {
+  hideExitConfirm();
   if (myRole) {
     void resetAndExit();
   } else {
@@ -992,6 +1025,8 @@ giveUpBtn.addEventListener('click', () => game?.giveUpRound());
 undoBtn.addEventListener('click', () => game?.undo());
 concedeBtn.addEventListener('click', () => game?.concede());
 exitMatchBtn.addEventListener('click', handleExitClick);
+exitConfirmBtn.addEventListener('click', handleExitConfirmed);
+exitCancelBtn.addEventListener('click', hideExitConfirm);
 for (const btn of dpadButtons) {
   const direction = btn.dataset.direction as Direction;
   btn.addEventListener('click', (e) => {

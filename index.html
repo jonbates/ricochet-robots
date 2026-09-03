@@ -211,6 +211,22 @@
       </div>
     </div>
 
+    <!-- Shown before the sidebar's Exit/Exit-and-Reset button actually acts --
+         handleExitClick() fills in the title/detail text and which of the two
+         confirm behaviors exit-confirm-btn triggers, since it's the same
+         overlay for both the local "Exit" and networked "Exit and Reset"
+         cases (see updateExitButtonForMode). -->
+    <div id="exit-confirm-overlay" class="end-overlay">
+      <div class="end-overlay-card">
+        <h1 id="exit-confirm-title"></h1>
+        <p id="exit-confirm-detail" class="start-blurb"></p>
+        <div class="end-overlay-actions">
+          <button id="exit-confirm-btn" type="button"></button>
+          <button id="exit-cancel-btn" type="button" class="secondary-btn">Cancel</button>
+        </div>
+      </div>
+    </div>
+
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>
