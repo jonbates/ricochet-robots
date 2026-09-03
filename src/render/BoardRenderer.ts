@@ -50,6 +50,7 @@ const ROBOT_DOME_DARKEN = 0.55; // how much darker than the body the top "dome" 
 const ROBOT_RING_INNER = 0.36;
 const ROBOT_RING_OUTER = 0.42;
 const ROBOT_RING_LIGHTEN = 0.5; // how much lighter than the body the surrounding ring is
+const ROBOT_EMISSIVE_INTENSITY = 0.35; // keeps the body glowing its own color even in shadow, without washing out the metallic highlight/shading
 const ROBOT_RING_Y_WORLD = 0.025; // just above the target-icon rings, so a robot standing on a target still reads as a robot first
 const WALL_THICKNESS = 0.08;
 const DEFLECTOR_LENGTH = 1.1;
@@ -352,6 +353,8 @@ export class BoardRenderer {
     sun.shadow.mapSize.set(2048, 2048);
     sun.shadow.bias = -0.0005;
     sun.shadow.normalBias = 0.02; // paired with the low bias above -- grazing angles need this to avoid acne without peter-panning the shadow off its caster
+    sun.shadow.radius = 6; // blur amount for the VSMShadowMap set up in Game.ts -- softens the otherwise hard-edged cast shadows
+    sun.shadow.blurSamples = 16; // more taps than the VSM default (8) so that blur stays smooth rather than banding at this radius
     const shadowExtent = BOARD_SIZE / 2 + 2; // board is BOARD_SIZE wide/deep, centered on the origin
     sun.shadow.camera.left = -shadowExtent;
     sun.shadow.camera.right = shadowExtent;
@@ -487,10 +490,13 @@ export class BoardRenderer {
    * confused with a same-colored target sitting on the same or an adjacent
    * cell. Lit, metallic body (MeshStandardMaterial) so it actually picks up
    * the sun/ambient and casts a color-tinted highlight rather than reading
-   * as a flat painted disc -- target icons stay on MeshBasicMaterial, so a
-   * robot no longer matches them pixel-for-pixel, but the two are already
-   * told apart by shape (circle vs. star/square/diamond/triangle/swirl), so
-   * that's fine. A smaller, darker circular "dome" decal sits on top as a
+   * as a flat painted disc, plus a low-intensity emissive in the same color
+   * so the body still reads as its own color inside its own cast shadow or
+   * a neighbor's, rather than going fully dark there -- target icons stay
+   * on MeshBasicMaterial, so a robot no longer matches them pixel-for-pixel,
+   * but the two are already told apart by shape (circle vs.
+   * star/square/diamond/triangle/swirl), so that's fine. A smaller, darker
+   * circular "dome" decal sits on top as a
    * cheap top-down stand-in for a rounded 3D robot body, and a lighter ring
    * sits around its base on the tile -- both opt out of raycasting so
    * clicks still resolve to the body mesh beneath them.
@@ -501,7 +507,13 @@ export class BoardRenderer {
     const ringGeometry = new RingGeometry(ROBOT_RING_INNER, ROBOT_RING_OUTER, 32);
     const out = {} as Record<RobotColor, Mesh>;
     for (const color of ROBOT_COLORS) {
-      const material = new MeshStandardMaterial({ color: ROBOT_HEX[color], metalness: 0.8, roughness: 0.3 });
+      const material = new MeshStandardMaterial({
+        color: ROBOT_HEX[color],
+        metalness: 0.8,
+        roughness: 0.3,
+        emissive: ROBOT_HEX[color],
+        emissiveIntensity: ROBOT_EMISSIVE_INTENSITY,
+      });
       const mesh = new Mesh(geometry, material);
       // Casts *and* receives a shadow now that it's lit -- a metallic
       // surface reads as flat color without the shading/highlight a real

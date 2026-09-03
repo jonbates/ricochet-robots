@@ -1,4 +1,4 @@
-import { PCFSoftShadowMap, Vector2, WebGLRenderer } from 'three';
+import { Vector2, VSMShadowMap, WebGLRenderer } from 'three';
 import { Board, type Cell, cellKey, type Direction, ROBOT_COLORS, type RobotColor, sameCell } from './board/Board';
 import { buildBoardVariant, type BoardVariantId, type QuadrantAssignment, randomInitialRobots, type Target } from './board/BoardLayout';
 import { type Bid, GameState, type Player, type RobotPositions, type RoundPhase } from './game/GameState';
@@ -179,9 +179,11 @@ export class Game {
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     // Soft shadows are what actually sell the robots as 3D bodies standing
     // on the board rather than flat painted circles -- see buildLights() in
-    // BoardRenderer for the directional "sun" that casts them.
+    // BoardRenderer for the directional "sun" that casts them. VSM (rather
+    // than PCFSoftShadowMap) so the blur amount is actually tunable via
+    // shadow.radius/blurSamples on the light instead of a fixed kernel.
     this.renderer.shadowMap.enabled = true;
-    this.renderer.shadowMap.type = PCFSoftShadowMap;
+    this.renderer.shadowMap.type = VSMShadowMap;
     this.container.appendChild(this.renderer.domElement);
 
     this.boardRenderer = new BoardRenderer(this.board, this.targets);
