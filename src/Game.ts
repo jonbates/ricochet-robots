@@ -837,11 +837,25 @@ export class Game {
     }
   }
 
-  /** Repositions robot meshes, keeps the selection ring glued to whichever robot is currently selected (a move can relocate the selected robot itself), and redraws the numbered move trail for the round's current attempt -- an empty moveHistory (a fresh bidder's turn, or giving up) just clears it. */
+  /**
+   * Repositions robot meshes, keeps the selection ring glued to whichever
+   * robot is currently selected (a move can relocate the selected robot
+   * itself), and redraws the numbered move trail for the round's current
+   * attempt -- an empty moveHistory (a fresh bidder's turn, or giving up)
+   * just clears it. Once `revealed` is true the attempt trail stays cleared
+   * regardless of moveHistory's contents -- computeAndDrawSolution() already
+   * clears it for whoever actually triggered the reveal, but every *other*
+   * peer's moveHistory only gets cleared once they themselves give up or a
+   * fresh round starts, so without this check, applySnapshot's unconditional
+   * call here would repaint their stale attempt trail right back on top of
+   * the solution path on their very next snapshot (see the field's own doc
+   * comment).
+   */
   private syncRobots(): void {
     this.boardRenderer.setRobotPositions(this.state.robots);
     this.boardRenderer.setSelected(this.state.selected);
-    this.boardRenderer.showMoveTrail(this.pathsForMoves(this.state.moveHistory));
+    if (this.revealed) this.boardRenderer.clearMoveTrail();
+    else this.boardRenderer.showMoveTrail(this.pathsForMoves(this.state.moveHistory));
   }
 
   private emitUpdate(): void {
