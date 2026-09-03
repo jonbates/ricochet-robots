@@ -94,6 +94,13 @@ interface EdgeBarrier {
   dir: Direction;
 }
 
+/** A lone wall face anywhere in the tile's interior, unrelated to any target -- unlike EdgeBarrier this isn't pinned to the tile's outer edge. `dir` is always 'E' or 'W': a wall on a cell's east/west face blocks the horizontal slide through it, which renders as a vertical bar on the (north-up) board -- see QUADRANT_TILES_FAMILY_2's "two vertical barriers per tile". */
+interface InteriorBarrier {
+  col: number;
+  row: number;
+  dir: 'E' | 'W';
+}
+
 interface QuadrantTile {
   id: string;
   /** Exactly one target per robot color, authored in this tile's own local 0-7 coordinates, with local (7,*) / (*,7) left clear -- that edge is the one that ends up facing the shared center vault once placed. */
@@ -102,6 +109,8 @@ interface QuadrantTile {
   deflectors: readonly DeflectorSpec[];
   /** A lone wall face on the board's outer boundary, unrelated to any target -- present on at most a couple of tiles total, matching how sparingly the real board uses them. */
   edgeBarrier?: EdgeBarrier;
+  /** Extra standalone wall faces, not tied to the outer edge or to any target -- see InteriorBarrier. */
+  barriers?: readonly InteriorBarrier[];
 }
 
 // 4 canonical tiles, each carrying one target per color (so any arrangement
@@ -186,6 +195,94 @@ const QUADRANT_TILES: readonly QuadrantTile[] = [
       { col: 0, row: 4, orientation: '/', color: 'blue' },
     ],
   },
+
+  // A second, independent set of 4 tiles (E-H) -- not photo-sourced like A-D,
+  // hand-authored to the same rules (one target per color, corner L-walls,
+  // (6,6) and (1,1) left clear, 2 deflectors for the diagonal face) plus 2
+  // extra standalone `barriers` per tile, always oriented 'E'/'W' so they
+  // render as vertical bars on the board (see InteriorBarrier). A match
+  // always draws its 4 corners from ONE family, never mixing E-H with A-D --
+  // see QUADRANT_FAMILIES and randomQuadrantAssignment -- so, same as A-D,
+  // any arrangement of all 4 still gives exactly one star/square/triangle/
+  // diamond target per color. Solvability (target reachable within a normal
+  // move count) was spot-checked with the AI solver across several random
+  // quadrant permutations and robot layouts rather than proven exhaustively;
+  // the extra barriers only ever add stopping points, never remove any, so
+  // they can't make a previously-reachable target unreachable.
+  {
+    id: 'E',
+    targets: [
+      { color: 'red', cell: { col: 2, row: 3 }, corner: 'NE', shape: 'square' },
+      { color: 'blue', cell: { col: 5, row: 5 }, corner: 'SW', shape: 'square' },
+      { color: 'green', cell: { col: 1, row: 5 }, corner: 'NW', shape: 'square' },
+      { color: 'yellow', cell: { col: 4, row: 1 }, corner: 'SE', shape: 'square' },
+    ],
+    deflectors: [
+      { col: 5, row: 0, orientation: '\\', color: 'green' },
+      { col: 0, row: 5, orientation: '/', color: 'yellow' },
+    ],
+    barriers: [
+      { col: 3, row: 2, dir: 'E' },
+      { col: 4, row: 6, dir: 'W' },
+    ],
+  },
+  {
+    id: 'F',
+    targets: [
+      { color: 'red', cell: { col: 3, row: 5 }, corner: 'SE', shape: 'triangle' },
+      { color: 'blue', cell: { col: 6, row: 2 }, corner: 'NW', shape: 'triangle' },
+      { color: 'green', cell: { col: 1, row: 4 }, corner: 'SW', shape: 'triangle' },
+      { color: 'yellow', cell: { col: 5, row: 1 }, corner: 'NE', shape: 'triangle' },
+    ],
+    deflectors: [
+      { col: 4, row: 0, orientation: '/', color: 'red' },
+      { col: 0, row: 4, orientation: '\\', color: 'blue' },
+    ],
+    barriers: [
+      { col: 2, row: 3, dir: 'E' },
+      { col: 5, row: 4, dir: 'W' },
+    ],
+  },
+  {
+    id: 'G',
+    targets: [
+      { color: 'red', cell: { col: 5, row: 3 }, corner: 'NW', shape: 'diamond' },
+      { color: 'blue', cell: { col: 2, row: 5 }, corner: 'SE', shape: 'diamond' },
+      { color: 'green', cell: { col: 4, row: 1 }, corner: 'SW', shape: 'diamond' },
+      { color: 'yellow', cell: { col: 1, row: 6 }, corner: 'NE', shape: 'diamond' },
+    ],
+    deflectors: [
+      { col: 2, row: 0, orientation: '\\', color: 'green' },
+      { col: 0, row: 2, orientation: '/', color: 'red' },
+    ],
+    barriers: [
+      { col: 3, row: 4, dir: 'W' },
+      { col: 6, row: 1, dir: 'E' },
+    ],
+  },
+  {
+    id: 'H',
+    targets: [
+      { color: 'red', cell: { col: 2, row: 6 }, corner: 'NW', shape: 'star' },
+      { color: 'blue', cell: { col: 5, row: 4 }, corner: 'SE', shape: 'star' },
+      { color: 'green', cell: { col: 6, row: 3 }, corner: 'NE', shape: 'star' },
+      { color: 'yellow', cell: { col: 3, row: 1 }, corner: 'SW', shape: 'star' },
+    ],
+    deflectors: [
+      { col: 3, row: 0, orientation: '/', color: 'blue' },
+      { col: 0, row: 3, orientation: '\\', color: 'green' },
+    ],
+    barriers: [
+      { col: 4, row: 2, dir: 'E' },
+      { col: 1, row: 5, dir: 'W' },
+    ],
+  },
+];
+
+/** Which indices into QUADRANT_TILES belong to which family -- a match always draws its 4 corners from one family (see randomQuadrantAssignment), never mixing the photo-sourced A-D set with the hand-authored E-H set. */
+const QUADRANT_FAMILIES: readonly (readonly number[])[] = [
+  [0, 1, 2, 3],
+  [4, 5, 6, 7],
 ];
 
 // The wildcard target -- any robot (not just a matching color) completes it.
@@ -264,7 +361,7 @@ export interface BoardVariant {
   targets: readonly Target[];
 }
 
-/** Which of the 4 QUADRANT_TILES (by index) sits in each board corner for one match. */
+/** Which of the QUADRANT_TILES (by index, always 4 from the same family) sits in each board corner for one match. */
 export interface QuadrantAssignment {
   NW: number;
   NE: number;
@@ -272,9 +369,10 @@ export interface QuadrantAssignment {
   SE: number;
 }
 
-/** A random permutation of all 4 tiles across the 4 corners -- matches the real game's "shuffle the sections and snap them together" setup. */
+/** A random permutation of all 4 tiles across the 4 corners -- matches the real game's "shuffle the sections and snap them together" setup. Picks one QUADRANT_FAMILIES entry first, then permutes just that family's 4 tiles, so a match's 4 corners never mix the two families. */
 export function randomQuadrantAssignment(): QuadrantAssignment {
-  const order = QUADRANT_TILES.map((_, i) => i);
+  const family = QUADRANT_FAMILIES[Math.floor(Math.random() * QUADRANT_FAMILIES.length)];
+  const order = [...family];
   for (let i = order.length - 1; i > 0; i--) {
     const j = Math.floor(Math.random() * (i + 1));
     [order[i], order[j]] = [order[j], order[i]];
@@ -308,6 +406,13 @@ export function buildBoardVariant(variantId: BoardVariantId, assignment: Quadran
     if (tile.edgeBarrier) {
       const cell = placeLocalCell({ col: tile.edgeBarrier.col, row: tile.edgeBarrier.row }, corner);
       wallSegments.push({ col: cell.col, row: cell.row, dir: rotateDirection(tile.edgeBarrier.dir, steps) });
+    }
+
+    if (tile.barriers) {
+      for (const barrier of tile.barriers) {
+        const cell = placeLocalCell({ col: barrier.col, row: barrier.row }, corner);
+        wallSegments.push({ col: cell.col, row: cell.row, dir: rotateDirection(barrier.dir, steps) });
+      }
     }
 
     if (variantId === 'diagonal') {
