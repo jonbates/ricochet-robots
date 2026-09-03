@@ -203,6 +203,9 @@ export class Game {
     this.boardRenderer = new BoardRenderer(this.board, this.targets);
     this.boardRenderer.setRobotPositions(this.state.robots);
     this.boardRenderer.setTarget(this.state.target);
+    // Fire-and-forget -- see loadEnvironmentMap()'s own doc comment for why
+    // this doesn't need to block match startup on an HDRI fetch.
+    void this.boardRenderer.loadEnvironmentMap(this.renderer);
 
     this.handleResize = this.handleResize.bind(this);
     this.handleClick = this.handleClick.bind(this);

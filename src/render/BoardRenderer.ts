@@ -15,11 +15,13 @@ import {
   type Material,
   Mesh,
   MeshBasicMaterial,
+  MeshPhysicalMaterial,
   MeshStandardMaterial,
   Object3D,
   OrthographicCamera,
   Plane,
   PlaneGeometry,
+  PMREMGenerator,
   PointLight,
   Raycaster,
   RingGeometry,
@@ -29,7 +31,9 @@ import {
   type Texture,
   Vector2,
   Vector3,
+  type WebGLRenderer,
 } from 'three';
+import { EXRLoader } from 'three/examples/jsm/loaders/EXRLoader.js';
 import { BOARD_SIZE, type Board, type Cell, cellKey, ROBOT_COLORS, type RobotColor } from '../board/Board';
 import { VAULT_CELLS } from '../board/BoardLayout';
 import type { RobotPositions } from '../game/GameState';
@@ -52,6 +56,17 @@ const ROBOT_RING_INNER = 0.36;
 const ROBOT_RING_OUTER = 0.42;
 const ROBOT_RING_LIGHTEN = 0.5; // how much lighter than the body the surrounding ring is
 const ROBOT_EMISSIVE_INTENSITY = 0.7; // keeps the body glowing its own color even in shadow, without washing out the metallic highlight/shading
+// Pushed well past 1 -- the camera looks straight down at the robots' mostly-flat
+// tops, so the reflected view direction is close to the surface normal and mostly
+// samples one fairly uniform patch of the HDRI (its "ceiling"/sky region) rather
+// than a sweep across the scene the way an angled view would; a boosted intensity
+// and low clearcoat roughness are what make that patch actually read as a bright,
+// glassy highlight instead of a barely-there tint at this camera angle.
+const ROBOT_ENV_MAP_INTENSITY = 3.5;
+const ROBOT_CLEARCOAT = 0.8; // a thin glossy top layer -- gives the metal a sharper, wet-look specular highlight than metalness/roughness alone
+const ROBOT_CLEARCOAT_ROUGHNESS = 0.05;
+/** Served from public/ (see vite.config.ts's `base`) -- a real-world HDRI so the robots' high-metalness bodies have something to actually reflect, rather than relying solely on the emissive-color workaround (see buildRobots). */
+const ENVIRONMENT_MAP_URL = `${import.meta.env.BASE_URL}historic_cloister_passage_1k.exr`;
 const ROBOT_ON_TARGET_OPACITY = 0.55; // see setRobotOnTargetOpacity() -- low enough to read the target icon underneath, high enough that the robot still reads as the solid thing on top
 const ROBOT_RING_Y_WORLD = 0.025; // just above the target-icon rings, so a robot standing on a target still reads as a robot first
 const WALL_THICKNESS = 0.08;
@@ -360,6 +375,63 @@ export class BoardRenderer {
     this.scene.add(this.vaultIconGroup);
   }
 
+  /**
+   * Loads the HDRI at ENVIRONMENT_MAP_URL and installs it as `scene.environment`
+   * so the robots' MeshPhysicalMaterial has something to reflect, without it
+   * also becoming the visible backdrop (scene.background is left as the flat
+   * navy Color set in the constructor). Async and fire-and-forget from the
+   * caller's side (Game.ts kicks this off right after construction, not
+   * awaited) -- the robots already read fine off their emissive fallback
+   * before this resolves, so nothing needs to block on a ~1MB HDRI fetch.
+   * Requires a live WebGLRenderer (PMREMGenerator compiles a shader against
+   * it), which is why this isn't just called from the constructor: BoardRenderer
+   * itself never holds a renderer reference, only the Scene/Camera Game.ts
+   * later hands to one.
+   *
+   * scene.environmentIntensity is forced to 0 here, and only the robots'
+   * materials are given the env map directly (material.envMap, not just the
+   * scene fallback) -- a real WebGLRenderer quirk, not a design choice:
+   * for any MeshStandardMaterial/Lambert/Phong that has no *own* envMap, the
+   * renderer overwrites that material's envMapIntensity uniform with
+   * scene.environmentIntensity every frame (WebGLRenderer.js, the
+   * `material.envMap === null && scene.environment !== null` branch),
+   * silently ignoring whatever the material's own envMapIntensity was set
+   * to. Every non-robot material here (tiles, walls, vault, deflectors)
+   * relies on that scene fallback rather than setting its own envMap, so
+   * without this they'd all pick up full-intensity reflections the moment
+   * this resolves, washing out the whole board -- confirmed by toggling
+   * scene.environment live and watching every material brighten together,
+   * not just the robots. Giving the robots their own explicit envMap exempts
+   * them from that override, so their own (boosted) envMapIntensity applies.
+   */
+  async loadEnvironmentMap(renderer: WebGLRenderer): Promise<void> {
+    const pmremGenerator = new PMREMGenerator(renderer);
+    try {
+      const texture = await new EXRLoader().loadAsync(ENVIRONMENT_MAP_URL);
+      const envMap = pmremGenerator.fromEquirectangular(texture).texture;
+      this.scene.environment = envMap;
+      this.scene.environmentIntensity = 0;
+      for (const mesh of Object.values(this.robotMeshes)) {
+        mesh.traverse((obj) => {
+          // Only the body and dome are MeshPhysicalMaterial (see buildRobots)
+          // -- the ring stays MeshBasicMaterial (flat, unlit) and is
+          // deliberately skipped here.
+          if (!(obj instanceof Mesh) || !(obj.material instanceof MeshPhysicalMaterial)) return;
+          obj.material.envMap = envMap;
+          obj.material.needsUpdate = true;
+        });
+      }
+      texture.dispose();
+    } catch (err) {
+      // Non-fatal -- the robots' emissive fallback (see buildRobots) already
+      // carries them without this, so a dropped fetch or unsupported
+      // environment shouldn't be a fire-and-forget unhandled rejection.
+      console.warn('Failed to load environment map, continuing without reflections', err);
+    } finally {
+      pmremGenerator.dispose();
+    }
+  }
+
   private buildLights(): void {
     this.scene.add(new AmbientLight(0xffffff, 0.8));
     // Placed up and off to the screen's front-right (+Z reads as "south"/
@@ -517,11 +589,15 @@ export class BoardRenderer {
    * robots specifically; target icons use star/square/diamond/triangle/
    * swirl instead (see buildIconGeometry), so a robot is never visually
    * confused with a same-colored target sitting on the same or an adjacent
-   * cell. Lit, metallic body (MeshStandardMaterial) so it actually picks up
-   * the sun/ambient and casts a color-tinted highlight rather than reading
-   * as a flat painted disc, plus a low-intensity emissive in the same color
-   * so the body still reads as its own color inside its own cast shadow or
-   * a neighbor's, rather than going fully dark there -- target icons stay
+   * cell. Lit, metallic body (MeshPhysicalMaterial, for its clearcoat layer
+   * and envMapIntensity control on top of MeshStandardMaterial's own
+   * metalness/roughness) so it actually picks up the sun/ambient and casts a
+   * color-tinted highlight rather than reading as a flat painted disc --
+   * loadEnvironmentMap() feeds it a real HDRI to reflect too, once that
+   * finishes loading -- plus a low-intensity emissive in the same color so
+   * the body still reads as its own color inside its own cast shadow or a
+   * neighbor's, or before the environment map has loaded in, rather than
+   * going fully dark there -- target icons stay
    * on MeshBasicMaterial, so a robot no longer matches them pixel-for-pixel,
    * but the two are already told apart by shape (circle vs.
    * star/square/diamond/triangle/swirl), so that's fine. A smaller, darker
@@ -536,12 +612,15 @@ export class BoardRenderer {
     const ringGeometry = new RingGeometry(ROBOT_RING_INNER, ROBOT_RING_OUTER, 32);
     const out = {} as Record<RobotColor, Mesh>;
     for (const color of ROBOT_COLORS) {
-      const material = new MeshStandardMaterial({
+      const material = new MeshPhysicalMaterial({
         color: ROBOT_HEX[color],
         metalness: 0.9,
         roughness: 0.1,
         emissive: ROBOT_HEX[color],
         emissiveIntensity: ROBOT_EMISSIVE_INTENSITY,
+        envMapIntensity: ROBOT_ENV_MAP_INTENSITY,
+        clearcoat: ROBOT_CLEARCOAT,
+        clearcoatRoughness: ROBOT_CLEARCOAT_ROUGHNESS,
       });
       const mesh = new Mesh(geometry, material);
       // Casts *and* receives a shadow now that it's lit -- a metallic
@@ -558,12 +637,15 @@ export class BoardRenderer {
       // a darker accent (ROBOT_DOME_DARKEN of the body's brightness) rather
       // than flattening it to match the body.
       const domeColor = darkenHex(ROBOT_HEX[color], ROBOT_DOME_DARKEN);
-      const domeMaterial = new MeshStandardMaterial({
+      const domeMaterial = new MeshPhysicalMaterial({
         color: domeColor,
         metalness: 0.9,
         roughness: 0.1,
         emissive: domeColor,
         emissiveIntensity: ROBOT_EMISSIVE_INTENSITY,
+        envMapIntensity: ROBOT_ENV_MAP_INTENSITY,
+        clearcoat: ROBOT_CLEARCOAT,
+        clearcoatRoughness: ROBOT_CLEARCOAT_ROUGHNESS,
       });
       const dome = new Mesh(domeGeometry, domeMaterial);
       dome.rotation.x = -Math.PI / 2;
