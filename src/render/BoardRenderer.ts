@@ -67,7 +67,7 @@ const ROBOT_CLEARCOAT = 0.8; // a thin glossy top layer -- gives the metal a sha
 const ROBOT_CLEARCOAT_ROUGHNESS = 0.05;
 /** Served from public/ (see vite.config.ts's `base`) -- a real-world HDRI so the robots' high-metalness bodies have something to actually reflect, rather than relying solely on the emissive-color workaround (see buildRobots). */
 const ENVIRONMENT_MAP_URL = `${import.meta.env.BASE_URL}historic_cloister_passage_1k.exr`;
-const ROBOT_ON_TARGET_OPACITY = 0.55; // see setRobotOnTargetOpacity() -- low enough to read the target icon underneath, high enough that the robot still reads as the solid thing on top
+const ROBOT_ON_TARGET_OPACITY = 0.7; // see setRobotOnTargetOpacity() -- low enough to read the target icon underneath, high enough that the robot still reads as the solid thing on top
 const ROBOT_RING_Y_WORLD = 0.025; // just above the target-icon rings, so a robot standing on a target still reads as a robot first
 const WALL_THICKNESS = 0.08;
 const DEFLECTOR_LENGTH = 1.1;
