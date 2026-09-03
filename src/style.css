@@ -13,7 +13,7 @@
    screen -- so html scrolls there instead of clipping or squeezing the
    board down to fit. */
 html {
-  @apply m-0 p-0 w-full h-full bg-[#0a1a2a] overflow-y-auto overflow-x-hidden md:overflow-hidden;
+  @apply m-0 p-0 w-screen h-full bg-[#0a1a2a] overflow-y-auto overflow-x-hidden md:overflow-hidden;
 }
 
 /* A real two-part layout (fixed-width sidebar + the board taking up
@@ -31,7 +31,7 @@ html {
    (html above is what scrolls); md:h-full locks it back to exactly the
    viewport height on desktop, matching the original fixed layout. */
 body {
-  @apply m-0 p-0 w-full bg-[#0a1a2a] font-sans flex flex-col md:h-full md:flex-row-reverse md:overflow-hidden;
+  @apply m-0 p-0 w-screen bg-[#0a1a2a] font-sans flex flex-col md:h-full md:flex-row-reverse md:overflow-hidden;
 }
 
 #app {
