@@ -29,7 +29,7 @@ import {
   Vector2,
   Vector3,
 } from 'three';
-import { BOARD_SIZE, type Board, type Cell, ROBOT_COLORS, type RobotColor } from '../board/Board';
+import { BOARD_SIZE, type Board, type Cell, cellKey, ROBOT_COLORS, type RobotColor } from '../board/Board';
 import { VAULT_CELLS } from '../board/BoardLayout';
 import type { RobotPositions } from '../game/GameState';
 import type { Target, TargetShape } from '../board/BoardLayout';
@@ -51,6 +51,7 @@ const ROBOT_RING_INNER = 0.36;
 const ROBOT_RING_OUTER = 0.42;
 const ROBOT_RING_LIGHTEN = 0.5; // how much lighter than the body the surrounding ring is
 const ROBOT_EMISSIVE_INTENSITY = 0.7; // keeps the body glowing its own color even in shadow, without washing out the metallic highlight/shading
+const ROBOT_ON_TARGET_OPACITY = 0.55; // see setRobotOnTargetOpacity() -- low enough to read the target icon underneath, high enough that the robot still reads as the solid thing on top
 const ROBOT_RING_Y_WORLD = 0.025; // just above the target-icon rings, so a robot standing on a target still reads as a robot first
 const WALL_THICKNESS = 0.08;
 const DEFLECTOR_LENGTH = 1.1;
@@ -293,6 +294,8 @@ export class BoardRenderer {
   /** What fraction of the container's height the board itself occupies on screen when the container is at least as wide as it is tall (aspect >= 1) -- the camera's vertical extent is exactly `viewSize` in that case, so this ratio (times the container's pixel height) is the board's rendered pixel width too, since applyAspect keeps a uniform (non-stretching) scale. Below aspect 1 (a narrow, stacked mobile container) the board's width is the *container's* full width instead -- see Game.ts's handleResize, which picks between the two. */
   readonly boardToViewRatio = BOARD_SIZE / this.viewSize;
   private readonly robotMeshes: Record<RobotColor, Mesh>;
+  /** Every cell that has a static target icon painted on it, for the see-through-robot handling in setRobotPositions(). */
+  private readonly targetCellKeys: ReadonlySet<string>;
   private readonly pickRaycaster = new Raycaster();
   private readonly pickPlane = new Plane(new Vector3(0, 1, 0), -TILE_TOP); // the tile surface, for cellAt()
   private readonly activeTargetHighlight: Mesh;
@@ -324,6 +327,7 @@ export class BoardRenderer {
 
     this.robotMeshes = this.buildRobots();
     this.buildTargetIcons(targets);
+    this.targetCellKeys = new Set(targets.map((t) => cellKey(t.cell.col, t.cell.row)));
     this.activeTargetHighlight = this.buildRing(0.36, 0.44, 0xffffff, 0.02);
     this.selectionHighlight = this.buildRing(0.38, 0.48, 0xffffff, 0.03);
     this.selectionHighlight.visible = false;
@@ -635,10 +639,42 @@ export class BoardRenderer {
 
   setRobotPositions(robots: RobotPositions): void {
     for (const color of ROBOT_COLORS) {
-      const { x, z } = cellToWorld(robots[color]);
+      const cell = robots[color];
+      const { x, z } = cellToWorld(cell);
       this.robotMeshes[color].position.x = x;
       this.robotMeshes[color].position.z = z;
+      // A robot parked on a target would otherwise completely hide that
+      // target's icon from this straight-down camera, so fade it out enough
+      // to read the icon through it -- which target a robot is sitting on
+      // is exactly the thing you're squinting at while solving.
+      this.setRobotOnTargetOpacity(color, this.targetCellKeys.has(cellKey(cell.col, cell.row)));
     }
+  }
+
+  /**
+   * Fades a robot (body, dome and base ring alike) so the target icon
+   * underneath shows through, or restores it to fully opaque.
+   *
+   * Toggling `transparent` rather than just parking every robot on a
+   * permanently transparent material keeps the common case -- a robot on a
+   * plain tile -- in the renderer's opaque pass, where it needs no depth
+   * sorting against its own dome/ring. That toggle changes the shader's
+   * program key (three.js compiles an opaque material with a `#define
+   * OPAQUE` that pins alpha to 1), so it needs an explicit `needsUpdate` to
+   * force the recompile; the early-out keeps that off the per-frame path,
+   * leaving it only on the handful of frames where a robot actually steps
+   * onto or off of a target.
+   */
+  private setRobotOnTargetOpacity(color: RobotColor, onTarget: boolean): void {
+    const opacity = onTarget ? ROBOT_ON_TARGET_OPACITY : 1;
+    this.robotMeshes[color].traverse((obj) => {
+      if (!(obj instanceof Mesh)) return;
+      const material = obj.material as Material;
+      if (material.transparent === onTarget) return;
+      material.transparent = onTarget;
+      material.opacity = opacity;
+      material.needsUpdate = true;
+    });
   }
 
   /** Moves the highlight ring onto whichever static target icon is now active, and refreshes the vault's reference-card copy of that same icon. */
