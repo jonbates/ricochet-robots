@@ -331,17 +331,24 @@ export class BoardRenderer {
   }
 
   private buildLights(): void {
-    this.scene.add(new AmbientLight(0xffffff, 0.75));
+    this.scene.add(new AmbientLight(0xffffff, 0.65));
     // Placed up and off to the screen's back-left (-Z reads as "north"/the
     // top of the screen, -X as west/left -- see the camera's up vector
     // above) so the cast shadows fall down-and-right across the board,
     // reading as the depth cue that sells the robots as 3D bodies rather
-    // than flat painted circles.
-    const sun = new DirectionalLight(0xffffff, 0.6);
-    sun.position.set(-7, 15, -5);
+    // than flat painted circles. A fairly low/grazing angle (large
+    // horizontal offset relative to height) is deliberate: a robot's cast
+    // shadow is a same-size disc translated sideways by height*tan(angle),
+    // and the robot's own decorative base ring (buildRobots' ROBOT_RING,
+    // out to radius 0.42) already covers a shallow-angle shadow almost
+    // entirely, leaving nothing visibly poking out. This angle pushes the
+    // translation past that ring for the ROBOT_HEIGHT=0.4 cylinders.
+    const sun = new DirectionalLight(0xffffff, 0.75);
+    sun.position.set(-9, 8, -6);
     sun.castShadow = true;
     sun.shadow.mapSize.set(2048, 2048);
-    sun.shadow.bias = -0.0015;
+    sun.shadow.bias = -0.0005;
+    sun.shadow.normalBias = 0.02; // paired with the low bias above -- grazing angles need this to avoid acne without peter-panning the shadow off its caster
     const shadowExtent = BOARD_SIZE / 2 + 2; // board is BOARD_SIZE wide/deep, centered on the origin
     sun.shadow.camera.left = -shadowExtent;
     sun.shadow.camera.right = shadowExtent;
