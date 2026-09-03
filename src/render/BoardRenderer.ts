@@ -20,6 +20,7 @@ import {
   OrthographicCamera,
   Plane,
   PlaneGeometry,
+  PointLight,
   Raycaster,
   RingGeometry,
   Scene,
@@ -74,6 +75,17 @@ const ICON_RING_INNER = 0.3;
 const ICON_RING_OUTER = 0.38;
 const ICON_RING_Y_OFFSET = -0.003; // just under the icon shape, within the same group, to avoid z-fighting
 const ICON_CIRCLE_Y_OFFSET = -0.0015; // between the ring and the shape -- see buildIconWithRing
+// The target icon itself is unlit (MeshBasicMaterial, like every target
+// icon -- see buildIconMesh), so this light doesn't change the icon's own
+// color; what it actually does is pool a soft glow across the lit tiles
+// (and any lit, metallic robot) around it, calling out the active cell the
+// same way a reading lamp calls out a spot on a desk. Low height and a
+// short falloff distance keep that pool tight to the target instead of
+// washing out neighboring cells.
+const TARGET_LIGHT_COLOR = 0xfff2cc;
+const TARGET_LIGHT_INTENSITY = 3.5;
+const TARGET_LIGHT_DISTANCE = 2.6;
+const TARGET_LIGHT_Y = 1.1;
 const VAULT_ICON_Y = 0.13; // sits on top of the vault box (height 0.12)
 const SOLUTION_PATH_Y = 0.09;
 const SOLUTION_DASH_LENGTH = 0.16;
@@ -299,6 +311,7 @@ export class BoardRenderer {
   private readonly pickRaycaster = new Raycaster();
   private readonly pickPlane = new Plane(new Vector3(0, 1, 0), -TILE_TOP); // the tile surface, for cellAt()
   private readonly activeTargetHighlight: Mesh;
+  private readonly targetLight: PointLight;
   private readonly selectionHighlight: Mesh;
   private readonly vaultIconGroup: Group;
   private vaultIconMesh: Group | null = null;
@@ -329,6 +342,9 @@ export class BoardRenderer {
     this.buildTargetIcons(targets);
     this.targetCellKeys = new Set(targets.map((t) => cellKey(t.cell.col, t.cell.row)));
     this.activeTargetHighlight = this.buildRing(0.36, 0.44, 0xffffff, 0.02);
+    this.targetLight = new PointLight(TARGET_LIGHT_COLOR, TARGET_LIGHT_INTENSITY, TARGET_LIGHT_DISTANCE, 2);
+    this.targetLight.position.y = TARGET_LIGHT_Y;
+    this.scene.add(this.targetLight);
     this.selectionHighlight = this.buildRing(0.38, 0.48, 0xffffff, 0.03);
     this.selectionHighlight.visible = false;
     this.vaultIconGroup = new Group();
@@ -677,11 +693,13 @@ export class BoardRenderer {
     });
   }
 
-  /** Moves the highlight ring onto whichever static target icon is now active, and refreshes the vault's reference-card copy of that same icon. */
+  /** Moves the highlight ring (and its accompanying soft glow) onto whichever static target icon is now active, and refreshes the vault's reference-card copy of that same icon. */
   setTarget(target: Target): void {
     const { x, z } = cellToWorld(target.cell);
     this.activeTargetHighlight.position.x = x;
     this.activeTargetHighlight.position.z = z;
+    this.targetLight.position.x = x;
+    this.targetLight.position.z = z;
 
     if (this.vaultIconMesh) {
       this.vaultIconGroup.remove(this.vaultIconMesh);
