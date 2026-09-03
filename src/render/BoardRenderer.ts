@@ -332,8 +332,23 @@ export class BoardRenderer {
 
   private buildLights(): void {
     this.scene.add(new AmbientLight(0xffffff, 0.75));
+    // Placed up and off to the screen's back-left (-Z reads as "north"/the
+    // top of the screen, -X as west/left -- see the camera's up vector
+    // above) so the cast shadows fall down-and-right across the board,
+    // reading as the depth cue that sells the robots as 3D bodies rather
+    // than flat painted circles.
     const sun = new DirectionalLight(0xffffff, 0.6);
-    sun.position.set(6, 12, 4);
+    sun.position.set(-7, 15, -5);
+    sun.castShadow = true;
+    sun.shadow.mapSize.set(2048, 2048);
+    sun.shadow.bias = -0.0015;
+    const shadowExtent = BOARD_SIZE / 2 + 2; // board is BOARD_SIZE wide/deep, centered on the origin
+    sun.shadow.camera.left = -shadowExtent;
+    sun.shadow.camera.right = shadowExtent;
+    sun.shadow.camera.top = shadowExtent;
+    sun.shadow.camera.bottom = -shadowExtent;
+    sun.shadow.camera.near = 1;
+    sun.shadow.camera.far = 40;
     this.scene.add(sun);
   }
 
@@ -346,6 +361,7 @@ export class BoardRenderer {
         const material = new MeshStandardMaterial({ color, roughness: 0.9 });
         const mesh = new Mesh(geometry, material);
         mesh.rotation.x = -Math.PI / 2;
+        mesh.receiveShadow = true;
         const { x, z } = cellToWorld({ col, row });
         mesh.position.set(x, TILE_TOP, z);
         group.add(mesh);
@@ -385,6 +401,7 @@ export class BoardRenderer {
     const geometry = new BoxGeometry(width, 0.12, depth);
     const material = new MeshStandardMaterial({ color: VAULT_COLOR, roughness: 0.7 });
     const mesh = new Mesh(geometry, material);
+    mesh.receiveShadow = true;
     mesh.position.set(x, 0.06, z);
     this.scene.add(mesh);
   }
@@ -401,11 +418,15 @@ export class BoardRenderer {
         const { x, z } = cellToWorld({ col, row });
         if (board.hasWall(col, row, 'N')) {
           const mesh = new Mesh(geometryNS, material);
+          mesh.castShadow = true;
+          mesh.receiveShadow = true;
           mesh.position.set(x, WALL_HEIGHT / 2, z - 0.5);
           group.add(mesh);
         }
         if (board.hasWall(col, row, 'W')) {
           const mesh = new Mesh(geometryEW, material);
+          mesh.castShadow = true;
+          mesh.receiveShadow = true;
           mesh.position.set(x - 0.5, WALL_HEIGHT / 2, z);
           group.add(mesh);
         }
@@ -427,6 +448,10 @@ export class BoardRenderer {
     west.position.set(-half, WALL_HEIGHT / 2, 0);
     const east = new Mesh(sideGeom, material);
     east.position.set(half, WALL_HEIGHT / 2, 0);
+    for (const wall of [north, south, west, east]) {
+      wall.castShadow = true;
+      wall.receiveShadow = true;
+    }
     this.scene.add(north, south, west, east);
   }
 
@@ -436,6 +461,8 @@ export class BoardRenderer {
     for (const deflector of board.getAllDeflectors()) {
       const material = new MeshStandardMaterial({ color: ROBOT_HEX[deflector.color], roughness: 0.4 });
       const mesh = new Mesh(geometry, material);
+      mesh.castShadow = true;
+      mesh.receiveShadow = true;
       const { x, z } = cellToWorld(deflector);
       mesh.position.set(x, DEFLECTOR_HEIGHT / 2, z);
       mesh.rotation.y = DEFLECTOR_ROTATION_Y[deflector.orientation];
@@ -465,6 +492,11 @@ export class BoardRenderer {
     for (const color of ROBOT_COLORS) {
       const material = new MeshBasicMaterial({ color: ROBOT_HEX[color] });
       const mesh = new Mesh(geometry, material);
+      // Casts (but, per the flat-color rationale above, doesn't receive) a
+      // shadow -- that cast shadow on the tile beneath it is what actually
+      // reads as "this is a 3D body standing on the board" for an otherwise
+      // unlit, flat-shaded mesh.
+      mesh.castShadow = true;
       mesh.position.y = ROBOT_HEIGHT / 2;
 
       const domeMaterial = new MeshBasicMaterial({ color: darkenHex(ROBOT_HEX[color], ROBOT_DOME_DARKEN) });
