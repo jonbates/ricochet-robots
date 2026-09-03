@@ -87,7 +87,7 @@ const TARGET_LIGHT_INTENSITY = 3.5;
 const TARGET_LIGHT_DISTANCE = 2.6;
 const TARGET_LIGHT_Y = 1.1;
 /** How much of the target's own color bleeds into its spotlight -- kept low so the light still reads as warm white with a hint of the target's hue, not a flat color wash. */
-const TARGET_LIGHT_TINT = 0.35;
+const TARGET_LIGHT_TINT = 0.5;
 /** Revolutions each warp-target swirl arm makes from center to rim -- higher winds the vortex tighter. */
 const WARP_SWIRL_TURNS = 2.4;
 /** Rim-end stroke widths of the two swirl arms (see buildIconMesh) -- the secondary arm stays a touch thinner than the primary so the two strands stay visually distinct instead of reading as one doubled-up ribbon. */
