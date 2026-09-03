@@ -13,12 +13,13 @@ import {
 const VARIANT_IDS: readonly BoardVariantId[] = ['classic', 'diagonal'];
 
 // Mirrors BoardLayout's own QUADRANT_FAMILIES -- a match always draws its 4
-// corners from one family (A-D or E-H), never mixing the two, so exhaustive
-// coverage means every permutation of each family separately rather than
-// every permutation of all 8 tiles together.
+// corners from one family (A-D, E-H, or I-L), never mixing them, so
+// exhaustive coverage means every permutation of each family separately
+// rather than every permutation of all 12 tiles together.
 const QUADRANT_FAMILIES: readonly (readonly number[])[] = [
   [0, 1, 2, 3],
   [4, 5, 6, 7],
+  [8, 9, 10, 11],
 ];
 
 function permutationsOf(tiles: readonly number[]): number[][] {
@@ -37,7 +38,7 @@ function permutationsOf(tiles: readonly number[]): number[][] {
   return permutations;
 }
 
-/** All 48 ways to assign 4 tiles to the 4 corners -- every arrangement the real random "snap together" setup could ever produce (24 permutations per family, across both families), so the rotation math gets exhaustive coverage rather than just one fixed sample. */
+/** All 72 ways to assign 4 tiles to the 4 corners -- every arrangement the real random "snap together" setup could ever produce (24 permutations per family, across all 3 families), so the rotation math gets exhaustive coverage rather than just one fixed sample. */
 function allQuadrantAssignments(): QuadrantAssignment[] {
   return QUADRANT_FAMILIES.flatMap((family) =>
     permutationsOf(family).map(([nw, ne, sw, se]) => ({ NW: nw, NE: ne, SW: sw, SE: se })),
@@ -47,10 +48,10 @@ function allQuadrantAssignments(): QuadrantAssignment[] {
 const ALL_ASSIGNMENTS = allQuadrantAssignments();
 
 describe('BoardLayout quadrant assembly', () => {
-  it('produces exactly 48 distinct corner assignments (24 permutations per family)', () => {
-    expect(ALL_ASSIGNMENTS).toHaveLength(48);
+  it('produces exactly 72 distinct corner assignments (24 permutations per family)', () => {
+    expect(ALL_ASSIGNMENTS).toHaveLength(72);
     const keys = new Set(ALL_ASSIGNMENTS.map((a) => `${a.NW}${a.NE}${a.SW}${a.SE}`));
-    expect(keys.size).toBe(48);
+    expect(keys.size).toBe(72);
   });
 
   it.each(VARIANT_IDS)(
@@ -122,15 +123,15 @@ describe('BoardLayout quadrant assembly', () => {
   });
 
   it('randomQuadrantAssignment always uses all 4 tiles of exactly one family, never mixing families', () => {
-    let sawSecondFamily = false;
-    for (let i = 0; i < 50; i++) {
+    const seenFamilies = new Set<number>();
+    for (let i = 0; i < 90; i++) {
       const assignment = randomQuadrantAssignment();
       const used = [assignment.NW, assignment.NE, assignment.SW, assignment.SE].sort((a, b) => a - b);
-      const matchedFamily = QUADRANT_FAMILIES.find((family) => JSON.stringify(used) === JSON.stringify(family));
-      expect(matchedFamily, `assignment ${JSON.stringify(assignment)} doesn't match any whole family`).toBeDefined();
-      if (matchedFamily === QUADRANT_FAMILIES[1]) sawSecondFamily = true;
+      const matchedFamilyIndex = QUADRANT_FAMILIES.findIndex((family) => JSON.stringify(used) === JSON.stringify(family));
+      expect(matchedFamilyIndex, `assignment ${JSON.stringify(assignment)} doesn't match any whole family`).toBeGreaterThanOrEqual(0);
+      seenFamilies.add(matchedFamilyIndex);
     }
-    expect(sawSecondFamily, 'expected at least one of 50 random assignments to draw from the second family').toBe(true);
+    expect(seenFamilies.size, 'expected 90 random assignments to have drawn from every family at least once').toBe(QUADRANT_FAMILIES.length);
   });
 });
 

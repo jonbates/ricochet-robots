@@ -277,12 +277,90 @@ const QUADRANT_TILES: readonly QuadrantTile[] = [
       { col: 1, row: 5, dir: 'W' },
     ],
   },
+
+  // A third, independent set of 4 tiles (I-L), same rules as E-H (one target
+  // per color, corner L-walls, (6,6)/(1,1) left clear, 2 deflectors for the
+  // diagonal face), but the 2 barriers are placed specifically in the tile's
+  // two outer rows (local row 0 and row 1 -- the rows nearest its own true
+  // board-edge side, which stays true regardless of which corner the tile
+  // is rotated into) rather than scattered anywhere in the interior like
+  // E-H's. Solvability spot-checked the same way as E-H -- see that
+  // family's own comment above.
+  {
+    id: 'I',
+    targets: [
+      { color: 'red', cell: { col: 3, row: 4 }, corner: 'NE', shape: 'star' },
+      { color: 'blue', cell: { col: 5, row: 3 }, corner: 'SW', shape: 'star' },
+      { color: 'green', cell: { col: 2, row: 5 }, corner: 'NW', shape: 'star' },
+      { color: 'yellow', cell: { col: 4, row: 2 }, corner: 'SE', shape: 'star' },
+    ],
+    deflectors: [
+      { col: 3, row: 3, orientation: '\\', color: 'green' },
+      { col: 5, row: 5, orientation: '/', color: 'yellow' },
+    ],
+    barriers: [
+      { col: 1, row: 0, dir: 'E' },
+      { col: 0, row: 1, dir: 'E' },
+    ],
+  },
+  {
+    id: 'J',
+    targets: [
+      { color: 'red', cell: { col: 4, row: 3 }, corner: 'SE', shape: 'square' },
+      { color: 'blue', cell: { col: 2, row: 4 }, corner: 'NW', shape: 'square' },
+      { color: 'green', cell: { col: 5, row: 2 }, corner: 'SW', shape: 'square' },
+      { color: 'yellow', cell: { col: 3, row: 5 }, corner: 'NE', shape: 'square' },
+    ],
+    deflectors: [
+      { col: 2, row: 3, orientation: '/', color: 'red' },
+      { col: 5, row: 4, orientation: '\\', color: 'blue' },
+    ],
+    barriers: [
+      { col: 1, row: 0, dir: 'W' },
+      { col: 0, row: 1, dir: 'W' },
+    ],
+  },
+  {
+    id: 'K',
+    targets: [
+      { color: 'red', cell: { col: 5, row: 4 }, corner: 'NW', shape: 'triangle' },
+      { color: 'blue', cell: { col: 3, row: 2 }, corner: 'SE', shape: 'triangle' },
+      { color: 'green', cell: { col: 4, row: 5 }, corner: 'SW', shape: 'triangle' },
+      { color: 'yellow', cell: { col: 2, row: 3 }, corner: 'NE', shape: 'triangle' },
+    ],
+    deflectors: [
+      { col: 4, row: 4, orientation: '\\', color: 'yellow' },
+      { col: 2, row: 2, orientation: '/', color: 'green' },
+    ],
+    barriers: [
+      { col: 1, row: 0, dir: 'E' },
+      { col: 0, row: 1, dir: 'E' },
+    ],
+  },
+  {
+    id: 'L',
+    targets: [
+      { color: 'red', cell: { col: 2, row: 4 }, corner: 'SE', shape: 'diamond' },
+      { color: 'blue', cell: { col: 4, row: 2 }, corner: 'NW', shape: 'diamond' },
+      { color: 'green', cell: { col: 3, row: 5 }, corner: 'NE', shape: 'diamond' },
+      { color: 'yellow', cell: { col: 5, row: 3 }, corner: 'SW', shape: 'diamond' },
+    ],
+    deflectors: [
+      { col: 3, row: 3, orientation: '/', color: 'red' },
+      { col: 5, row: 5, orientation: '\\', color: 'green' },
+    ],
+    barriers: [
+      { col: 1, row: 0, dir: 'W' },
+      { col: 0, row: 1, dir: 'W' },
+    ],
+  },
 ];
 
-/** Which indices into QUADRANT_TILES belong to which family -- a match always draws its 4 corners from one family (see randomQuadrantAssignment), never mixing the photo-sourced A-D set with the hand-authored E-H set. */
+/** Which indices into QUADRANT_TILES belong to which family -- a match always draws its 4 corners from one family (see randomQuadrantAssignment), never mixing families. */
 const QUADRANT_FAMILIES: readonly (readonly number[])[] = [
   [0, 1, 2, 3],
   [4, 5, 6, 7],
+  [8, 9, 10, 11],
 ];
 
 // The wildcard target -- any robot (not just a matching color) completes it.
