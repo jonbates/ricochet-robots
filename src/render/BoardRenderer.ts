@@ -332,20 +332,22 @@ export class BoardRenderer {
 
   private buildLights(): void {
     this.scene.add(new AmbientLight(0xffffff, 0.8));
-    // Placed up and off to the screen's back-left (-Z reads as "north"/the
-    // top of the screen, -X as west/left -- see the camera's up vector
-    // above) so the cast shadows fall down-and-right across the board,
+    // Placed up and off to the screen's front-right (+Z reads as "south"/
+    // the bottom of the screen, +X as east/right -- see the camera's up
+    // vector above) so the cast shadows fall up-and-left across the board,
     // reading as the depth cue that sells the robots as 3D bodies rather
-    // than flat painted circles. Still a fairly low/grazing angle (large
-    // horizontal offset relative to height) despite being pulled up and
-    // back from directly overhead: a robot's cast shadow is a same-size
-    // disc translated sideways by height*tan(angle), and the robot's own
-    // decorative base ring (buildRobots' ROBOT_RING, out to radius 0.42)
-    // already covers a shallow-angle shadow almost entirely, leaving
-    // nothing visibly poking out. This angle keeps that translation past
-    // the ring for the ROBOT_HEIGHT=0.4 cylinders.
+    // than flat painted circles. A shadow lands on the far side of its
+    // caster from the light, so this is the mirror-image placement of "the
+    // light is up/back/left" -- putting the light at front-right is what
+    // makes the shadow fall toward back-left. Still a fairly low/grazing
+    // angle (large horizontal offset relative to height): a robot's cast
+    // shadow is a same-size disc translated sideways by height*tan(angle),
+    // and the robot's own decorative base ring (buildRobots' ROBOT_RING,
+    // out to radius 0.42) already covers a shallow-angle shadow almost
+    // entirely, leaving nothing visibly poking out. This angle keeps that
+    // translation past the ring for the ROBOT_HEIGHT=0.4 cylinders.
     const sun = new DirectionalLight(0xffffff, 0.75);
-    sun.position.set(-9, 10, -9);
+    sun.position.set(9, 10, 9);
     sun.castShadow = true;
     sun.shadow.mapSize.set(2048, 2048);
     sun.shadow.bias = -0.0005;
@@ -499,7 +501,7 @@ export class BoardRenderer {
     const ringGeometry = new RingGeometry(ROBOT_RING_INNER, ROBOT_RING_OUTER, 32);
     const out = {} as Record<RobotColor, Mesh>;
     for (const color of ROBOT_COLORS) {
-      const material = new MeshStandardMaterial({ color: ROBOT_HEX[color], metalness: 0.55, roughness: 0.35 });
+      const material = new MeshStandardMaterial({ color: ROBOT_HEX[color], metalness: 0.8, roughness: 0.3 });
       const mesh = new Mesh(geometry, material);
       // Casts *and* receives a shadow now that it's lit -- a metallic
       // surface reads as flat color without the shading/highlight a real
@@ -510,8 +512,8 @@ export class BoardRenderer {
 
       const domeMaterial = new MeshStandardMaterial({
         color: darkenHex(ROBOT_HEX[color], ROBOT_DOME_DARKEN),
-        metalness: 0.55,
-        roughness: 0.35,
+        metalness: 0.8,
+        roughness: 0.3,
       });
       const dome = new Mesh(domeGeometry, domeMaterial);
       dome.rotation.x = -Math.PI / 2;
