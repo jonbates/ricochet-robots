@@ -482,14 +482,15 @@ export class BoardRenderer {
    * robots specifically; target icons use star/square/diamond/triangle/
    * swirl instead (see buildIconGeometry), so a robot is never visually
    * confused with a same-colored target sitting on the same or an adjacent
-   * cell. Flat/unlit body (MeshBasicMaterial) so its color renders
-   * pixel-identical to the target icons, which are also unlit -- a lit
-   * material picks up ambient/directional shading that made the robot read
-   * as a visibly different (dimmer) shade of the same color. A smaller,
-   * darker circular "dome" decal sits on top as a cheap top-down stand-in
-   * for a rounded 3D robot body, and a lighter ring sits around its base on
-   * the tile -- both opt out of raycasting so clicks still resolve to the
-   * body mesh beneath them.
+   * cell. Lit, metallic body (MeshStandardMaterial) so it actually picks up
+   * the sun/ambient and casts a color-tinted highlight rather than reading
+   * as a flat painted disc -- target icons stay on MeshBasicMaterial, so a
+   * robot no longer matches them pixel-for-pixel, but the two are already
+   * told apart by shape (circle vs. star/square/diamond/triangle/swirl), so
+   * that's fine. A smaller, darker circular "dome" decal sits on top as a
+   * cheap top-down stand-in for a rounded 3D robot body, and a lighter ring
+   * sits around its base on the tile -- both opt out of raycasting so
+   * clicks still resolve to the body mesh beneath them.
    */
   private buildRobots(): Record<RobotColor, Mesh> {
     const geometry = new CylinderGeometry(ROBOT_RADIUS, ROBOT_RADIUS, ROBOT_HEIGHT, ROBOT_SIDES);
@@ -497,16 +498,20 @@ export class BoardRenderer {
     const ringGeometry = new RingGeometry(ROBOT_RING_INNER, ROBOT_RING_OUTER, 32);
     const out = {} as Record<RobotColor, Mesh>;
     for (const color of ROBOT_COLORS) {
-      const material = new MeshBasicMaterial({ color: ROBOT_HEX[color] });
+      const material = new MeshStandardMaterial({ color: ROBOT_HEX[color], metalness: 0.55, roughness: 0.35 });
       const mesh = new Mesh(geometry, material);
-      // Casts (but, per the flat-color rationale above, doesn't receive) a
-      // shadow -- that cast shadow on the tile beneath it is what actually
-      // reads as "this is a 3D body standing on the board" for an otherwise
-      // unlit, flat-shaded mesh.
+      // Casts *and* receives a shadow now that it's lit -- a metallic
+      // surface reads as flat color without the shading/highlight a real
+      // light gives it, and it should darken under a neighbor's shadow too.
       mesh.castShadow = true;
+      mesh.receiveShadow = true;
       mesh.position.y = ROBOT_HEIGHT / 2;
 
-      const domeMaterial = new MeshBasicMaterial({ color: darkenHex(ROBOT_HEX[color], ROBOT_DOME_DARKEN) });
+      const domeMaterial = new MeshStandardMaterial({
+        color: darkenHex(ROBOT_HEX[color], ROBOT_DOME_DARKEN),
+        metalness: 0.55,
+        roughness: 0.35,
+      });
       const dome = new Mesh(domeGeometry, domeMaterial);
       dome.rotation.x = -Math.PI / 2;
       dome.position.y = ROBOT_HEIGHT / 2 + 0.001; // just above the body's own top face, in its local frame
