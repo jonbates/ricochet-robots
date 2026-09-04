@@ -104,6 +104,11 @@ const TARGET_LIGHT_DISTANCE = 2.6;
 const TARGET_LIGHT_Y = 1.1;
 /** How much of the target's own color bleeds into its spotlight -- kept low so the light still reads as warm white with a hint of the target's hue, not a flat color wash. */
 const TARGET_LIGHT_TINT = 0.5;
+/** A second, dimmer copy of the target spotlight that follows the robot the round is actually asking you to move (see updateRobotLight) -- same tinted color and falloff, so the two pools read as a matched pair calling out "this robot, that square". Deliberately well under TARGET_LIGHT_INTENSITY: the target is the thing to find on the board, and this shouldn't compete with it. */
+const ROBOT_LIGHT_INTENSITY = 1.4;
+/** Radii of the ring marking the currently selected robot. Comfortably wider than the robot's own base ring (ROBOT_RING_OUTER) so it reads as a separate marker around the robot rather than another band on it, even though that means spilling slightly past the robot's own 1x1 cell. */
+const SELECTION_RING_INNER = 0.57;
+const SELECTION_RING_OUTER = 0.72;
 /** Revolutions each warp-target swirl arm makes from center to rim -- higher winds the vortex tighter. */
 const WARP_SWIRL_TURNS = 2.4;
 /** Rim-end stroke widths of the two swirl arms (see buildIconMesh) -- the secondary arm stays a touch thinner than the primary so the two strands stay visually distinct instead of reading as one doubled-up ribbon. */
@@ -344,6 +349,10 @@ export class BoardRenderer {
   private readonly pickPlane = new Plane(new Vector3(0, 1, 0), -TILE_TOP); // the tile surface, for cellAt()
   private readonly activeTargetHighlight: Mesh;
   private readonly targetLight: PointLight;
+  /** Follows whichever robot matches the active target's color -- see updateRobotLight. */
+  private readonly robotLight: PointLight;
+  /** Which robot the active target is asking for, or null for the warp target, which any robot can claim and so has no one robot to call out. */
+  private targetRobotColor: RobotColor | null = null;
   private readonly selectionHighlight: Mesh;
   private readonly vaultIconGroup: Group;
   private vaultIconMesh: Group | null = null;
@@ -377,7 +386,13 @@ export class BoardRenderer {
     this.targetLight = new PointLight(TARGET_LIGHT_COLOR, TARGET_LIGHT_INTENSITY, TARGET_LIGHT_DISTANCE, 2);
     this.targetLight.position.y = TARGET_LIGHT_Y;
     this.scene.add(this.targetLight);
-    this.selectionHighlight = this.buildRing(0.38, 0.48, 0xffffff, 0.03);
+    // Same falloff and height as the target's own light, just dimmer --
+    // stays dark until setTarget names a robot color to follow.
+    this.robotLight = new PointLight(TARGET_LIGHT_COLOR, ROBOT_LIGHT_INTENSITY, TARGET_LIGHT_DISTANCE, 2);
+    this.robotLight.position.y = TARGET_LIGHT_Y;
+    this.robotLight.visible = false;
+    this.scene.add(this.robotLight);
+    this.selectionHighlight = this.buildRing(SELECTION_RING_INNER, SELECTION_RING_OUTER, 0xffffff, 0.03);
     this.selectionHighlight.visible = false;
     this.vaultIconGroup = new Group();
     const { x: vaultX, z: vaultZ } = this.vaultCenter();
@@ -778,6 +793,19 @@ export class BoardRenderer {
       // solving -- so show a shrunk copy of it on top of the robot instead.
       this.updateRobotTopIcon(color, this.targetsByCell.get(cellKey(cell.col, cell.row)));
     }
+    this.updateRobotLight(); // the robot it follows has almost certainly just moved
+  }
+
+  /** Parks the robot spotlight over whichever robot the active target calls for, or darkens it entirely when the target is the warp (no one robot owns it) or no target has been set yet. */
+  private updateRobotLight(): void {
+    if (!this.targetRobotColor) {
+      this.robotLight.visible = false;
+      return;
+    }
+    const { position } = this.robotMeshes[this.targetRobotColor];
+    this.robotLight.position.x = position.x;
+    this.robotLight.position.z = position.z;
+    this.robotLight.visible = true;
   }
 
   /**
@@ -812,7 +840,13 @@ export class BoardRenderer {
     this.activeTargetHighlight.position.z = z;
     this.targetLight.position.x = x;
     this.targetLight.position.z = z;
-    this.targetLight.color.setHex(mixHex(TARGET_LIGHT_COLOR, targetColorHex(target.color), TARGET_LIGHT_TINT));
+    const tinted = mixHex(TARGET_LIGHT_COLOR, targetColorHex(target.color), TARGET_LIGHT_TINT);
+    this.targetLight.color.setHex(tinted);
+    // The robot that has to reach this target gets the same tint, so the two
+    // lit pools read as the two ends of the round's one job.
+    this.robotLight.color.setHex(tinted);
+    this.targetRobotColor = ROBOT_COLORS.includes(target.color as RobotColor) ? (target.color as RobotColor) : null;
+    this.updateRobotLight();
 
     if (this.vaultIconMesh) {
       this.vaultIconGroup.remove(this.vaultIconMesh);

@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import type { Group, Material, Mesh } from 'three';
+import type { Group, Material, Mesh, PointLight } from 'three';
 import { Board, BOARD_SIZE, type Cell, cellKey, type RobotColor } from '../board/Board';
 import { buildBoardVariant, type Target } from '../board/BoardLayout';
 import type { RobotPositions } from '../game/GameState';
@@ -29,6 +29,20 @@ function makeRenderer(): { renderer: BoardRenderer; targets: readonly Target[] }
 
 function topIconState(renderer: BoardRenderer, color: RobotColor): TopIconState {
   return (renderer as unknown as { robotTopIcons: Record<RobotColor, TopIconState> }).robotTopIcons[color];
+}
+
+function lights(renderer: BoardRenderer): { targetLight: PointLight; robotLight: PointLight } {
+  return renderer as unknown as { targetLight: PointLight; robotLight: PointLight };
+}
+
+function robotMesh(renderer: BoardRenderer, color: RobotColor): Group {
+  return (renderer as unknown as { robotMeshes: Record<RobotColor, Group> }).robotMeshes[color];
+}
+
+function findTarget(targets: readonly Target[], color: Target['color']): Target {
+  const target = targets.find((t) => t.color === color);
+  if (!target) throw new Error(`no ${color} target on this board -- test setup is degenerate`);
+  return target;
 }
 
 /** Puts the red robot on `cell` and parks the other three on cells no target sits on, so only red's icon slot is ever in play. */
@@ -137,5 +151,64 @@ describe('BoardRenderer on-target robot icons', () => {
     renderer.setRobotPositions(redAt(plainCell(targets), targets));
 
     for (const dispose of disposals) expect(dispose).toHaveBeenCalled();
+  });
+});
+
+describe('BoardRenderer robot spotlight', () => {
+  it('parks a dimmer, same-colored light over the robot the target calls for', () => {
+    const { renderer, targets } = makeRenderer();
+    const redTarget = findTarget(targets, 'red');
+
+    renderer.setRobotPositions(redAt(plainCell(targets), targets));
+    renderer.setTarget(redTarget);
+
+    const { targetLight, robotLight } = lights(renderer);
+    expect(robotLight.visible).toBe(true);
+    expect(robotLight.color.getHex()).toBe(targetLight.color.getHex());
+    expect(robotLight.intensity).toBeLessThan(targetLight.intensity);
+  });
+
+  // The light is only useful if it stays on the robot -- robots move
+  // constantly during an attempt, and setTarget only runs once a round.
+  it('follows its robot as the robot moves', () => {
+    const { renderer, targets } = makeRenderer();
+    renderer.setTarget(findTarget(targets, 'red'));
+
+    renderer.setRobotPositions(redAt({ col: 2, row: 3 }, targets));
+    const { robotLight } = lights(renderer);
+    expect(robotLight.position.x).toBe(robotMesh(renderer, 'red').position.x);
+    expect(robotLight.position.z).toBe(robotMesh(renderer, 'red').position.z);
+
+    renderer.setRobotPositions(redAt({ col: 11, row: 9 }, targets));
+    expect(robotLight.position.x).toBe(robotMesh(renderer, 'red').position.x);
+    expect(robotLight.position.z).toBe(robotMesh(renderer, 'red').position.z);
+  });
+
+  // Any robot can claim the warp target, so there's no one robot to call
+  // out -- lighting an arbitrary one would actively mislead.
+  it('goes dark for the warp target, which no single robot owns', () => {
+    const { renderer, targets } = makeRenderer();
+    renderer.setTarget(findTarget(targets, 'red'));
+    expect(lights(renderer).robotLight.visible).toBe(true);
+
+    renderer.setTarget(findTarget(targets, 'warp'));
+    expect(lights(renderer).robotLight.visible).toBe(false);
+
+    // ...and comes back for the next ordinary target.
+    renderer.setTarget(findTarget(targets, 'blue'));
+    expect(lights(renderer).robotLight.visible).toBe(true);
+  });
+
+  it('moves to the newly-named robot when the target changes color', () => {
+    const { renderer, targets } = makeRenderer();
+    renderer.setRobotPositions(redAt(plainCell(targets), targets));
+
+    renderer.setTarget(findTarget(targets, 'red'));
+    const { robotLight } = lights(renderer);
+    expect(robotLight.position.x).toBe(robotMesh(renderer, 'red').position.x);
+
+    renderer.setTarget(findTarget(targets, 'green'));
+    expect(robotLight.position.x).toBe(robotMesh(renderer, 'green').position.x);
+    expect(robotLight.position.z).toBe(robotMesh(renderer, 'green').position.z);
   });
 });
