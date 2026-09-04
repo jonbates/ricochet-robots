@@ -6,6 +6,7 @@ import type { Cell, Direction } from './board/Board';
 import { buildTargetIconCanvas } from './render/targetIcon2d';
 import type { NetworkRoom } from './net/room';
 import { generateRoomCode, normalizeCodeInput, toRoomId } from './net/roomCode';
+import { watchConnection } from './net/reconnect';
 import type { LobbyPlayer, StartMatchMsg, StateSnapshot } from './net/protocol';
 
 function required<T>(el: T | null, selector: string): T {
@@ -20,6 +21,11 @@ const reconnectingBanner = required(
   document.querySelector<HTMLDivElement>('#reconnecting-banner'),
   '#reconnecting-banner',
 );
+const reconnectingBannerText = required(
+  document.querySelector<HTMLSpanElement>('#reconnecting-banner-text'),
+  '#reconnecting-banner-text',
+);
+const reconnectBtn = required(document.querySelector<HTMLButtonElement>('#reconnect-btn'), '#reconnect-btn');
 
 const hudTimer = required(document.querySelector<HTMLDivElement>('#hud-timer'), '#hud-timer');
 const hudTimerText = required(document.querySelector<HTMLSpanElement>('#hud-timer-text'), '#hud-timer-text');
@@ -966,7 +972,10 @@ function handleUpdate(info: UpdateInfo): void {
   hudAttemptStatus.hidden = info.phase !== 'attempting';
   hudGiveUp.hidden = info.phase === 'resolved';
   roundResultPanel.hidden = info.phase !== 'resolved';
-  reconnectingBanner.hidden = info.hostConnected;
+  // signalingDead outranks hostConnected: it's true for a host too (which
+  // always reports itself connected), and it must not be cleared by an
+  // ordinary render pass -- only a working connection clears it.
+  reconnectingBanner.hidden = info.hostConnected && !signalingDead;
 
   renderPlayers(info);
   renderTarget(info);
@@ -1271,3 +1280,34 @@ if ('wakeLock' in navigator) {
   });
   requestWakeLock();
 }
+
+// Signaling can die outright -- see net/reconnect.ts for why a reload is the
+// only cure, and why the app can't tell the difference from a plain drop
+// without asking Trystero directly. `signalingDead` is latched: once shown,
+// only a genuinely working connection (i.e. a reload) clears the notice.
+let signalingDead = false;
+
+/** What "cut off" means for whichever screen and role this tab is currently in -- the input net/reconnect.ts pairs with its own view of the relay sockets. */
+function networkLooksDisconnected(): boolean {
+  if (!room) return false; // local hot-seat play, or no room joined yet
+  if (game && lastInfo) {
+    return myRole === 'client' ? !lastInfo.hostConnected : lastInfo.connectedSlots.includes(false);
+  }
+  // Still in the lobby: a host legitimately sits here with no peers, but a
+  // client that can't see the host has nothing to wait for.
+  return myRole === 'client' && room.getPeerIds().length === 0;
+}
+
+reconnectBtn.addEventListener('click', () => window.location.reload());
+
+watchConnection({
+  isDisconnected: networkLooksDisconnected,
+  getSockets: () => room?.relaySockets() ?? {}, // {} until online play has actually loaded net/room.ts
+
+  onGiveUp: () => {
+    signalingDead = true;
+    reconnectingBannerText.textContent = 'Connection lost -- the signaling relays are unreachable.';
+    reconnectBtn.hidden = false;
+    reconnectingBanner.hidden = false;
+  },
+});

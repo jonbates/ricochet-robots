@@ -51,6 +51,17 @@ body {
   @apply hidden;
 }
 
+/* Only shown once auto-recovery has been tried and hasn't taken (see
+   net/reconnect.ts) -- until then the banner is a status line, not
+   something to act on. */
+.reconnect-btn {
+  @apply ml-2 rounded px-2 py-0.5 text-xs font-bold text-[#ffd21f] bg-[#0a1a2a] cursor-pointer;
+}
+
+.reconnect-btn[hidden] {
+  @apply hidden;
+}
+
 /* A dedicated header strip above the board itself (not floating over it) --
    gives the target "spotlight" reveal a little breathing room instead of
    crowding the board's top edge. No fixed height (unlike #hud-bottom-strip,

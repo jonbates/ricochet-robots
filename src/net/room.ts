@@ -1,4 +1,4 @@
-import { joinRoom, selfId } from 'trystero';
+import { getRelaySockets, joinRoom, selfId } from 'trystero';
 import type { ActionMsg, LeaveMatchMsg, LobbyRosterMsg, RenameMsg, StartMatchMsg, StateSnapshot } from './protocol';
 
 // Unique per app -- Trystero namespaces every room under this, so this app's
@@ -6,6 +6,21 @@ import type { ActionMsg, LeaveMatchMsg, LobbyRosterMsg, RenameMsg, StartMatchMsg
 // space. Bump only on a breaking wire-format change (old and new clients in
 // the same appId would otherwise silently misinterpret each other's packets).
 const APP_ID = 'ricochet-robots-v1';
+
+// Trystero signals over public Nostr relays, and defaults to just 5 of the 28
+// it ships with -- picked by shuffling that list with a seed derived from
+// APP_ID, so *every* player of this app always lands on the same 5. Public
+// relays rate-limit and go down often, and a relay socket that fails enough
+// times in a row is retired for the lifetime of the page (Trystero doubles a
+// per-URL retry period up to a 60s cap, then marks the client closed for
+// good, and its relay pool is module-scoped, so even re-joining the room
+// hands back the same dead sockets -- only a page reload clears it). Losing
+// all 5 therefore means no more peer discovery at all until a refresh, which
+// is exactly the "stuck reconnecting" state players kept hitting. Widening
+// the pool means more independent relays have to die before that happens,
+// and every peer still derives the same set from APP_ID, so they all still
+// meet on the same relays.
+const RELAY_REDUNDANCY = 12;
 
 /**
  * Mirrors Trystero's MessageAction<T> shape, but without T bound to its JSON
@@ -42,7 +57,7 @@ export class NetworkRoom {
   readonly leaveMatch;
 
   constructor(roomId: string) {
-    this.room = joinRoom({ appId: APP_ID }, roomId);
+    this.room = joinRoom({ appId: APP_ID, relayConfig: { redundancy: RELAY_REDUNDANCY } }, roomId);
     this.roster = typedAction<LobbyRosterMsg>(this.room, 'roster');
     this.startMatch = typedAction<StartMatchMsg>(this.room, 'start');
     this.action = typedAction<ActionMsg>(this.room, 'action');
@@ -61,6 +76,21 @@ export class NetworkRoom {
 
   getPeerIds(): string[] {
     return Object.keys(this.room.getPeers());
+  }
+
+  /**
+   * The relay sockets Trystero is currently signaling over, for
+   * net/reconnect.ts's dead-transport check. Exposed from here rather than
+   * imported there directly so that `trystero` stays confined to this
+   * module -- main.ts only ever `await import`s it (see joinRoomWithCode),
+   * which is what keeps the whole library out of the initial bundle for
+   * players who never touch online play.
+   *
+   * Trystero's relay pool is module-scoped and shared by every room, so this
+   * reports the page's signaling as a whole, not just this room's slice.
+   */
+  relaySockets(): Record<string, WebSocket | undefined> {
+    return getRelaySockets() as Record<string, WebSocket | undefined>;
   }
 
   leave(): void {

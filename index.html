@@ -13,10 +13,16 @@
          reversal restores the sidebar-left/board-right look without needing
          to reorder anything again. -->
     <div id="app">
-      <!-- Client-role only: shown whenever this peer currently has no live
-           connection to the host (a drop, before it self-heals, or while a
-           refreshed host is reconnecting) -- see Game.hostConnected. -->
-      <div id="reconnecting-banner" class="reconnecting-banner" hidden>Reconnecting to host&hellip;</div>
+      <!-- Two states. Client-role only, by default: shown whenever this peer
+           currently has no live connection to the host (a drop, before it
+           self-heals, or while a refreshed host is reconnecting) -- see
+           Game.hostConnected. For either role, it also turns into the
+           dead-signaling notice, with the manual control, once
+           net/reconnect.ts has given up auto-recovering. -->
+      <div id="reconnecting-banner" class="reconnecting-banner" hidden>
+        <span id="reconnecting-banner-text">Reconnecting to host&hellip;</span>
+        <button id="reconnect-btn" class="reconnect-btn" type="button" hidden>Reconnect</button>
+      </div>
       <div id="hud-top-strip">
         <div id="hud-top-strip-inner">
           <div id="hud-target-spotlight-slot"></div>
