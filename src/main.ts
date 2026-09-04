@@ -969,6 +969,7 @@ function handleUpdate(info: UpdateInfo): void {
     hudGiveUp.after(hudAttempting);
   }
   mobileDpad.hidden = info.phase !== 'attempting' || !myTurn;
+  if (!mobileDpad.hidden) placeDpadIfNeeded(); // deferred to here so the board is at its final size/offset -- see placeDpadIfNeeded
   hudAttemptStatus.hidden = info.phase !== 'attempting';
   hudGiveUp.hidden = info.phase === 'resolved';
   roundResultPanel.hidden = info.phase !== 'resolved';
@@ -1055,7 +1056,10 @@ for (const btn of dpadButtons) {
 // so ending a drag never also fires a move.
 const DPAD_SIZE = 140;
 const DPAD_DRAG_THRESHOLD = 6;
-const DPAD_POSITION_KEY = 'rr-dpad-position';
+/** Bumped from 'rr-dpad-position' when the default moved from straddling the board's bottom edge to sitting under its bottom-right corner -- a saved position always wins over the default (see restoreDpadPosition), so without a new key anyone who had ever dragged the pad would never see the new placement. Costs them one re-drag, once. */
+const DPAD_POSITION_KEY = 'rr-dpad-position-v2';
+/** Breathing room between the board's bottom edge and the pad, so it reads as sitting below the board rather than butted against it. */
+const DPAD_BOARD_GAP = 8;
 
 interface DpadDragState {
   pointerId: number;
@@ -1071,13 +1075,17 @@ let dpadJustDragged = false;
 
 // Bounds are #app's own box, not the viewport -- left/top below are
 // #app-relative (see the `absolute`/`relative` positioning in style.css).
-// The vertical max allows the pad to hang half below #app's bottom edge
-// (rather than being forced fully inside it), since #app's height tracks
-// the board almost exactly and a full clamp would prevent the "straddling
-// the board's bottom edge" default position from ever actually straddling.
+// #app's height tracks the board almost exactly (measured on a 400px-wide
+// mobile layout: board bottom 396, #app 400), so the vertical max has to
+// let the pad past #app's bottom edge entirely for the default position --
+// just *below* the board -- to be reachable at all. That's safe here: on
+// mobile the page continues well past #app (the stacked HUD lives down
+// there) and #app doesn't clip its overflow, so a pad sitting below it
+// stays visible and draggable. Capped at half a pad-height of overhang so
+// it still can't be dragged somewhere it can't be grabbed back from.
 function clampDpadPosition(left: number, top: number): { left: number; top: number } {
   const maxLeft = Math.max(appEl.clientWidth - DPAD_SIZE, 0);
-  const maxTop = Math.max(appEl.clientHeight - DPAD_SIZE / 2, 0);
+  const maxTop = Math.max(appEl.clientHeight + DPAD_SIZE / 2, 0);
   return { left: Math.min(Math.max(left, 0), maxLeft), top: Math.min(Math.max(top, 0), maxTop) };
 }
 
@@ -1095,8 +1103,10 @@ function saveDpadPosition(): void {
   }
 }
 
-// Defaults to straddling the board's bottom edge, centered horizontally,
-// the very first time it's shown; a saved drag from a previous visit
+// Defaults to just below the board, aligned to its right edge, the very
+// first time it's shown -- fully clear of the board, so it can't sit on top
+// of a robot the player is trying to see, and on the side that falls under
+// the thumb for most one-handed holds. A saved drag from a previous visit
 // overrides that.
 function restoreDpadPosition(): void {
   let saved: string | null = null;
@@ -1112,10 +1122,32 @@ function restoreDpadPosition(): void {
       return;
     }
   }
-  setDpadPosition(container.offsetLeft + container.offsetWidth / 2 - DPAD_SIZE / 2, container.offsetTop + container.offsetHeight - DPAD_SIZE / 2);
+  setDpadPosition(container.offsetLeft + container.offsetWidth - DPAD_SIZE, container.offsetTop + container.offsetHeight + DPAD_BOARD_GAP);
 }
-restoreDpadPosition();
-window.addEventListener('resize', () => setDpadPosition(mobileDpad.offsetLeft, mobileDpad.offsetTop));
+/**
+ * Positions the pad the first time it's actually shown, rather than at load.
+ * The board's geometry isn't settled until a round is under way -- the HUD
+ * strip above it grows when the target spotlight appears, pushing the board
+ * roughly 80px further down -- so a default measured at load is derived from
+ * a layout that no longer exists by the time the pad appears, which put it
+ * on top of the board's bottom-right corner instead of below it.
+ */
+let dpadPlaced = false;
+function placeDpadIfNeeded(): void {
+  if (dpadPlaced) return;
+  dpadPlaced = true;
+  restoreDpadPosition();
+}
+
+// Re-clamps against the new viewport from the pad's own style values rather
+// than offsetLeft/offsetTop: the pad is hidden (display: none) for most of a
+// round, and a hidden element reports both as 0, so reading layout here
+// would snap it to the top-left corner on any resize it happened to be
+// hidden for.
+window.addEventListener('resize', () => {
+  if (!dpadPlaced) return;
+  setDpadPosition(parseFloat(mobileDpad.style.left) || 0, parseFloat(mobileDpad.style.top) || 0);
+});
 
 mobileDpad.addEventListener('pointerdown', (e) => {
   dpadDrag = {

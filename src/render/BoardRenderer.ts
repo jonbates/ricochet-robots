@@ -105,7 +105,7 @@ const TARGET_LIGHT_Y = 1.1;
 /** How much of the target's own color bleeds into its spotlight -- kept low so the light still reads as warm white with a hint of the target's hue, not a flat color wash. */
 const TARGET_LIGHT_TINT = 0.5;
 /** A second, dimmer copy of the target spotlight that follows the robot the round is actually asking you to move (see updateRobotLight) -- same tinted color and falloff, so the two pools read as a matched pair calling out "this robot, that square". Deliberately well under TARGET_LIGHT_INTENSITY: the target is the thing to find on the board, and this shouldn't compete with it. */
-const ROBOT_LIGHT_INTENSITY = 1.4;
+const ROBOT_LIGHT_INTENSITY = 2.1;
 /** Radii of the ring marking the currently selected robot. Comfortably wider than the robot's own base ring (ROBOT_RING_OUTER) so it reads as a separate marker around the robot rather than another band on it, even though that means spilling slightly past the robot's own 1x1 cell. */
 const SELECTION_RING_INNER = 0.57;
 const SELECTION_RING_OUTER = 0.72;
