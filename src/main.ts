@@ -1255,3 +1255,19 @@ if (urlRoomCode) {
     joinRoomWithCode(restored.roomCode);
   }
 }
+
+// Keep the screen from sleeping while this tab is open -- without it,
+// players idly looking at the board (or leaving it up on a shared screen)
+// get timed out mid-game. The lock is released by the browser whenever the
+// tab is hidden, so it has to be re-requested on every return to visibility.
+if ('wakeLock' in navigator) {
+  const requestWakeLock = () => {
+    navigator.wakeLock.request('screen').catch(() => {
+      // Not fatal -- e.g. battery saver mode can refuse the request.
+    });
+  };
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') requestWakeLock();
+  });
+  requestWakeLock();
+}
