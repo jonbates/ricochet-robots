@@ -67,8 +67,9 @@ const ROBOT_CLEARCOAT = 0.8; // a thin glossy top layer -- gives the metal a sha
 const ROBOT_CLEARCOAT_ROUGHNESS = 0.05;
 /** Served from public/ (see vite.config.ts's `base`) -- a real-world HDRI so the robots' high-metalness bodies have something to actually reflect, rather than relying solely on the emissive-color workaround (see buildRobots). */
 const ENVIRONMENT_MAP_URL = `${import.meta.env.BASE_URL}historic_cloister_passage_1k.exr`;
-const ROBOT_ON_TARGET_OPACITY = 0.7; // see setRobotOnTargetOpacity() -- low enough to read the target icon underneath, high enough that the robot still reads as the solid thing on top
 const ROBOT_RING_Y_WORLD = 0.025; // just above the target-icon rings, so a robot standing on a target still reads as a robot first
+const ROBOT_TOP_ICON_Y = ROBOT_HEIGHT + 0.002; // just above the dome, so a robot parked on a target still shows which one -- see updateRobotTopIcon
+const ROBOT_TOP_ICON_SCALE = 0.7; // shrinks the (board-scale) icon+ring down to fit within the robot's own top face
 const WALL_THICKNESS = 0.08;
 const DEFLECTOR_LENGTH = 1.1;
 const DEFLECTOR_THICKNESS = 0.16;
@@ -204,6 +205,13 @@ function buildSwirlGeometry(maxRadius: number, turns: number, strokeWidth: numbe
   return new ShapeGeometry(shape);
 }
 
+/** Per-robot bookkeeping for the icon shown on top of it when it's parked on a target -- see buildRobots and updateRobotTopIcon. */
+interface RobotTopIconState {
+  readonly container: Group;
+  icon: Group | null;
+  shownKey: string | null;
+}
+
 function disposeObject3D(obj: Object3D): void {
   obj.traverse((child) => {
     if (child instanceof Mesh) {
@@ -327,9 +335,11 @@ export class BoardRenderer {
 
   /** What fraction of the container's height the board itself occupies on screen when the container is at least as wide as it is tall (aspect >= 1) -- the camera's vertical extent is exactly `viewSize` in that case, so this ratio (times the container's pixel height) is the board's rendered pixel width too, since applyAspect keeps a uniform (non-stretching) scale. Below aspect 1 (a narrow, stacked mobile container) the board's width is the *container's* full width instead -- see Game.ts's handleResize, which picks between the two. */
   readonly boardToViewRatio = BOARD_SIZE / this.viewSize;
-  private readonly robotMeshes: Record<RobotColor, Mesh>;
-  /** Every cell that has a static target icon painted on it, for the see-through-robot handling in setRobotPositions(). */
-  private readonly targetCellKeys: ReadonlySet<string>;
+  private readonly robotMeshes: Record<RobotColor, Group>;
+  /** Each robot's on-top-of-the-body icon slot -- see buildRobots and updateRobotTopIcon. */
+  private readonly robotTopIcons: Record<RobotColor, RobotTopIconState>;
+  /** Every static target, keyed by cell, for the on-top-of-robot icon handling in setRobotPositions(). */
+  private readonly targetsByCell: ReadonlyMap<string, Target>;
   private readonly pickRaycaster = new Raycaster();
   private readonly pickPlane = new Plane(new Vector3(0, 1, 0), -TILE_TOP); // the tile surface, for cellAt()
   private readonly activeTargetHighlight: Mesh;
@@ -360,9 +370,9 @@ export class BoardRenderer {
     this.buildBoundaryFrame();
     this.buildDeflectors(board);
 
-    this.robotMeshes = this.buildRobots();
+    ({ meshes: this.robotMeshes, topIcons: this.robotTopIcons } = this.buildRobots());
     this.buildTargetIcons(targets);
-    this.targetCellKeys = new Set(targets.map((t) => cellKey(t.cell.col, t.cell.row)));
+    this.targetsByCell = new Map(targets.map((t) => [cellKey(t.cell.col, t.cell.row), t]));
     this.activeTargetHighlight = this.buildRing(0.36, 0.44, 0xffffff, 0.02);
     this.targetLight = new PointLight(TARGET_LIGHT_COLOR, TARGET_LIGHT_INTENSITY, TARGET_LIGHT_DISTANCE, 2);
     this.targetLight.position.y = TARGET_LIGHT_Y;
@@ -606,12 +616,15 @@ export class BoardRenderer {
    * sits around its base on the tile -- both opt out of raycasting so
    * clicks still resolve to the body mesh beneath them.
    */
-  private buildRobots(): Record<RobotColor, Mesh> {
+  private buildRobots(): { meshes: Record<RobotColor, Group>; topIcons: Record<RobotColor, RobotTopIconState> } {
     const geometry = new CylinderGeometry(ROBOT_RADIUS, ROBOT_RADIUS, ROBOT_HEIGHT, ROBOT_SIDES);
     const domeGeometry = new CircleGeometry(ROBOT_DOME_RADIUS, 24);
     const ringGeometry = new RingGeometry(ROBOT_RING_INNER, ROBOT_RING_OUTER, 32);
-    const out = {} as Record<RobotColor, Mesh>;
+    const meshes = {} as Record<RobotColor, Group>;
+    const topIcons = {} as Record<RobotColor, RobotTopIconState>;
     for (const color of ROBOT_COLORS) {
+      const group = new Group();
+
       const material = new MeshPhysicalMaterial({
         color: ROBOT_HEX[color],
         metalness: 0.9,
@@ -622,13 +635,14 @@ export class BoardRenderer {
         clearcoat: ROBOT_CLEARCOAT,
         clearcoatRoughness: ROBOT_CLEARCOAT_ROUGHNESS,
       });
-      const mesh = new Mesh(geometry, material);
+      const body = new Mesh(geometry, material);
       // Casts *and* receives a shadow now that it's lit -- a metallic
       // surface reads as flat color without the shading/highlight a real
       // light gives it, and it should darken under a neighbor's shadow too.
-      mesh.castShadow = true;
-      mesh.receiveShadow = true;
-      mesh.position.y = ROBOT_HEIGHT / 2;
+      body.castShadow = true;
+      body.receiveShadow = true;
+      body.position.y = ROBOT_HEIGHT / 2;
+      group.add(body);
 
       // Emissive-tinted on the same terms as the body above, or it renders
       // essentially black: at this metalness there's near-zero diffuse, and
@@ -649,21 +663,31 @@ export class BoardRenderer {
       });
       const dome = new Mesh(domeGeometry, domeMaterial);
       dome.rotation.x = -Math.PI / 2;
-      dome.position.y = ROBOT_HEIGHT / 2 + 0.001; // just above the body's own top face, in its local frame
+      dome.position.y = ROBOT_HEIGHT + 0.001; // just above the body's own top face
       dome.raycast = () => {};
-      mesh.add(dome);
+      group.add(dome);
 
       const ringMaterial = new MeshBasicMaterial({ color: lightenHex(ROBOT_HEX[color], ROBOT_RING_LIGHTEN), side: DoubleSide });
       const ring = new Mesh(ringGeometry, ringMaterial);
       ring.rotation.x = -Math.PI / 2;
-      ring.position.y = ROBOT_RING_Y_WORLD - ROBOT_HEIGHT / 2; // local offset that lands the ring at world y = ROBOT_RING_Y_WORLD, on the tile around the body's base
+      ring.position.y = ROBOT_RING_Y_WORLD; // on the tile around the body's base
       ring.raycast = () => {};
-      mesh.add(ring);
+      group.add(ring);
 
-      this.scene.add(mesh);
-      out[color] = mesh;
+      // Empty until a robot actually parks on a target (see
+      // updateRobotTopIcon) -- holds a shrunk copy of that target's icon so
+      // it stays visible from this straight-down camera instead of being
+      // hidden under the (fully opaque) body.
+      const topIconContainer = new Group();
+      topIconContainer.position.y = ROBOT_TOP_ICON_Y;
+      topIconContainer.raycast = () => {};
+      group.add(topIconContainer);
+
+      this.scene.add(group);
+      meshes[color] = group;
+      topIcons[color] = { container: topIconContainer, icon: null, shownKey: null };
     }
-    return out;
+    return { meshes, topIcons };
   }
 
   /** One static icon per target, never moved again once built -- the active one is called out separately by repositioning activeTargetHighlight onto its cell in setTarget(). */
@@ -749,37 +773,36 @@ export class BoardRenderer {
       this.robotMeshes[color].position.x = x;
       this.robotMeshes[color].position.z = z;
       // A robot parked on a target would otherwise completely hide that
-      // target's icon from this straight-down camera, so fade it out enough
-      // to read the icon through it -- which target a robot is sitting on
-      // is exactly the thing you're squinting at while solving.
-      this.setRobotOnTargetOpacity(color, this.targetCellKeys.has(cellKey(cell.col, cell.row)));
+      // target's icon from this straight-down camera -- which target a
+      // robot is sitting on is exactly the thing you're squinting at while
+      // solving -- so show a shrunk copy of it on top of the robot instead.
+      this.updateRobotTopIcon(color, this.targetsByCell.get(cellKey(cell.col, cell.row)));
     }
   }
 
   /**
-   * Fades a robot (body, dome and base ring alike) so the target icon
-   * underneath shows through, or restores it to fully opaque.
-   *
-   * Toggling `transparent` rather than just parking every robot on a
-   * permanently transparent material keeps the common case -- a robot on a
-   * plain tile -- in the renderer's opaque pass, where it needs no depth
-   * sorting against its own dome/ring. That toggle changes the shader's
-   * program key (three.js compiles an opaque material with a `#define
-   * OPAQUE` that pins alpha to 1), so it needs an explicit `needsUpdate` to
-   * force the recompile; the early-out keeps that off the per-frame path,
-   * leaving it only on the handful of frames where a robot actually steps
-   * onto or off of a target.
+   * Shows a shrunk copy of `target`'s icon on top of the robot (or clears it
+   * when `target` is undefined, i.e. the robot isn't on any target) -- the
+   * `shownKey` early-out keeps the rebuild (which allocates fresh geometry
+   * via buildIconWithRing) off the per-frame path, leaving it only on the
+   * handful of frames where a robot actually steps onto or off of a target.
    */
-  private setRobotOnTargetOpacity(color: RobotColor, onTarget: boolean): void {
-    const opacity = onTarget ? ROBOT_ON_TARGET_OPACITY : 1;
-    this.robotMeshes[color].traverse((obj) => {
-      if (!(obj instanceof Mesh)) return;
-      const material = obj.material as Material;
-      if (material.transparent === onTarget) return;
-      material.transparent = onTarget;
-      material.opacity = opacity;
-      material.needsUpdate = true;
-    });
+  private updateRobotTopIcon(color: RobotColor, target: Target | undefined): void {
+    const state = this.robotTopIcons[color];
+    const key = target ? cellKey(target.cell.col, target.cell.row) : null;
+    if (state.shownKey === key) return;
+    if (state.icon) {
+      state.container.remove(state.icon);
+      disposeObject3D(state.icon);
+      state.icon = null;
+    }
+    if (target) {
+      const icon = this.buildIconWithRing(target);
+      icon.scale.setScalar(ROBOT_TOP_ICON_SCALE);
+      state.container.add(icon);
+      state.icon = icon;
+    }
+    state.shownKey = key;
   }
 
   /** Moves the highlight ring (and its accompanying soft glow) onto whichever static target icon is now active, and refreshes the vault's reference-card copy of that same icon. */
